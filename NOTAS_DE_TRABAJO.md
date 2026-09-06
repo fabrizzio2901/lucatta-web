@@ -2,15 +2,15 @@
 
 Este archivo reúne pendientes de trabajo. Su contenido no se muestra en el sitio público.
 
-## Página de Eventos (borrador)
+## Página de Eventos
 
-La página `/eventos` no se publica ni aparece en la navegación hasta contar con contenido suficiente.
+La página básica `/eventos` está publicada y aparece en la navegación. Se limita a información confirmada y dirige las consultas a WhatsApp.
 
-Estructura prevista:
+Estructura publicada:
 
 1. Presentación breve de servicios para eventos y botón **Pedir información**.
 2. Mesas de postres, catering y coffee breaks, únicamente con alcances confirmados.
-3. Trabajos realizados, solo si se reciben fotografías propias autorizadas.
+3. Los trabajos realizados se agregarán solo si se reciben fotografías propias autorizadas.
 4. Explicación del contacto por WhatsApp: fecha, asistentes, tipo de evento y zona.
 5. Preguntas específicas y cierre con botón **Pedir información**.
 

@@ -33,6 +33,9 @@ export function SiteFooter() {
         </div>
         <div>
           <p className="footer-label">Información</p>
+          {siteStatus.eventsPageReady && (
+            <a href="/eventos">Servicios para eventos</a>
+          )}
           <a href="/condiciones-de-pedidos">Condiciones de pedidos</a>
           <a href="/#como-pedir">Cómo hacer tu pedido</a>
         </div>
