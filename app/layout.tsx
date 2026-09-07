@@ -1,9 +1,15 @@
 import type { Metadata } from 'next';
 import './globals.css';
 
-const siteUrl =
+const deploymentHost =
+  process.env.VERCEL_PROJECT_PRODUCTION_URL ?? process.env.VERCEL_URL;
+const configuredSiteUrl =
   process.env.NEXT_PUBLIC_SITE_URL ??
+  deploymentHost ??
   'https://lucatta-pasteleria-casa-blanca.luisfabrizzio.chatgpt.site';
+const siteUrl = configuredSiteUrl.startsWith('http')
+  ? configuredSiteUrl
+  : `https://${configuredSiteUrl}`;
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
