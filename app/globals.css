@@ -1295,6 +1295,186 @@ h1 {
   width: 100%;
 }
 
+.privacy-page {
+  background: var(--paper);
+}
+
+.privacy-hero {
+  background:
+    radial-gradient(circle at 86% 12%, rgba(216, 161, 140, 0.25), transparent 30%),
+    var(--wine);
+}
+
+.privacy-hero h1 {
+  max-width: 1000px;
+}
+
+.privacy-updated {
+  color: rgba(245, 234, 220, 0.58) !important;
+  font-size: 0.88rem !important;
+  margin-top: 1.4rem !important;
+}
+
+.privacy-layout {
+  align-items: start;
+  display: grid;
+  gap: clamp(3rem, 8vw, 8rem);
+  grid-template-columns: minmax(240px, 320px) minmax(0, 1fr);
+}
+
+.privacy-index {
+  position: sticky;
+  top: 130px;
+}
+
+.privacy-index > div {
+  border: 1px solid var(--line);
+  padding: 2rem;
+}
+
+.privacy-index > div > svg {
+  color: var(--terracotta);
+  height: 32px;
+  margin-bottom: 1.5rem;
+  width: 32px;
+}
+
+.privacy-index nav {
+  display: grid;
+  margin-top: 1rem;
+}
+
+.privacy-index nav a {
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.35;
+  padding: 0.8rem 0;
+}
+
+.privacy-index nav a:hover,
+.privacy-index nav a:focus-visible {
+  color: var(--wine);
+}
+
+.privacy-content {
+  min-width: 0;
+}
+
+.privacy-intro-card,
+.privacy-contact-card {
+  align-items: start;
+  background: var(--cream);
+  display: grid;
+  gap: 2rem;
+  grid-template-columns: auto minmax(0, 1fr);
+  padding: clamp(2rem, 5vw, 4rem);
+}
+
+.privacy-intro-card > svg,
+.privacy-contact-card > svg {
+  color: var(--terracotta);
+  height: 36px;
+  width: 36px;
+}
+
+.privacy-intro-card h2,
+.privacy-contact-card h2,
+.privacy-section h2 {
+  color: var(--wine);
+  font-family: var(--font-display);
+  font-weight: 400;
+  letter-spacing: -0.02em;
+  line-height: 1.05;
+  margin: 0;
+}
+
+.privacy-intro-card h2,
+.privacy-contact-card h2 {
+  font-size: clamp(2rem, 3.6vw, 3.8rem);
+}
+
+.privacy-intro-card p:last-child {
+  color: var(--muted);
+  line-height: 1.75;
+  margin: 1.4rem 0 0;
+}
+
+.privacy-section {
+  border-bottom: 1px solid var(--line);
+  display: grid;
+  gap: 2rem;
+  grid-template-columns: 54px minmax(0, 1fr);
+  padding: clamp(3rem, 6vw, 5rem) 0;
+  scroll-margin-top: 120px;
+}
+
+.privacy-number {
+  color: var(--terracotta);
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  margin: 0.55rem 0 0;
+}
+
+.privacy-section h2 {
+  font-size: clamp(2rem, 3vw, 3.25rem);
+}
+
+.privacy-section p,
+.privacy-section li {
+  color: var(--muted);
+  font-size: 1rem;
+  line-height: 1.8;
+}
+
+.privacy-section p {
+  margin: 1.5rem 0 0;
+}
+
+.privacy-section ul {
+  display: grid;
+  gap: 0.85rem;
+  margin: 1.5rem 0 0;
+  padding-left: 1.2rem;
+}
+
+.privacy-section strong {
+  color: var(--ink);
+}
+
+.privacy-inline-link,
+.privacy-contact-card a {
+  color: var(--wine);
+  text-decoration: underline;
+  text-decoration-color: rgba(86, 18, 26, 0.35);
+  text-underline-offset: 0.2em;
+}
+
+.privacy-source-link {
+  align-items: center;
+  color: var(--wine);
+  display: inline-flex;
+  font-weight: 700;
+  gap: 0.55rem;
+  margin-top: 1.75rem;
+}
+
+.privacy-source-link svg {
+  height: 16px;
+  width: 16px;
+}
+
+.privacy-contact-card {
+  margin-top: clamp(3rem, 6vw, 5rem);
+}
+
+.privacy-contact-card a {
+  display: inline-block;
+  font-size: 1.05rem;
+  margin-top: 1.25rem;
+}
+
 .events-page {
   background: var(--paper);
 }
@@ -1632,6 +1812,7 @@ h1 {
   .story-section,
   .faq-section,
   .conditions-layout,
+  .privacy-layout,
   .event-faq-section {
     display: block;
   }
@@ -1738,7 +1919,8 @@ h1 {
   }
 
   .faq-intro,
-  .conditions-aside {
+  .conditions-aside,
+  .privacy-index {
     position: static;
   }
 
@@ -1757,6 +1939,28 @@ h1 {
 
   .conditions-aside {
     margin-top: 3rem;
+  }
+
+  .privacy-index {
+    margin-bottom: 3rem;
+  }
+
+  .privacy-section {
+    display: block;
+  }
+
+  .privacy-number {
+    margin-bottom: 1rem;
+  }
+
+  .privacy-intro-card,
+  .privacy-contact-card {
+    display: block;
+  }
+
+  .privacy-intro-card > svg,
+  .privacy-contact-card > svg {
+    margin-bottom: 1.5rem;
   }
 
   .back-link {
