@@ -24,11 +24,22 @@ export async function POST(request: Request) {
       }),
       cache: 'no-store',
     });
-    const data = (await response.json()) as {
+    const rawResponse = await response.text();
+    let data: {
       ok?: boolean;
       error?: string;
       result?: unknown;
     };
+    try {
+      data = JSON.parse(rawResponse) as typeof data;
+    } catch (cause) {
+      console.error('Lucatta Apps Script returned a non-JSON response', {
+        status: response.status,
+        contentType: response.headers.get('content-type'),
+        cause,
+      });
+      throw new Error('Respuesta inválida del backend de Lucatta.');
+    }
     if (!response.ok || !data.ok) {
       return NextResponse.json(
         { ok: false, error: data.error || 'No pudimos guardar tu solicitud.' },
@@ -36,7 +47,8 @@ export async function POST(request: Request) {
       );
     }
     return NextResponse.json({ ok: true, result: data.result });
-  } catch {
+  } catch (cause) {
+    console.error('Lucatta order bridge failed', cause);
     return NextResponse.json(
       { ok: false, error: 'No pudimos conectar con Lucátta. Intenta de nuevo en un momento.' },
       { status: 500 },
