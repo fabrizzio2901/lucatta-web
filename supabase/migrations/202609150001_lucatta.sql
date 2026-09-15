@@ -226,6 +226,11 @@ revoke all on public.inbound_events from anon, authenticated;
 revoke all on public.outbox from anon, authenticated;
 revoke all on public.audit_log from anon, authenticated;
 
+-- PostgREST still requires object privileges even though service_role bypasses RLS.
+grant usage on schema public to service_role;
+grant all privileges on all tables in schema public to service_role;
+grant usage, select on all sequences in schema public to service_role;
+
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values ('catalog', 'catalog', true, 5242880, array['image/jpeg','image/png','image/webp'])
 on conflict (id) do update set public = excluded.public, file_size_limit = excluded.file_size_limit,
