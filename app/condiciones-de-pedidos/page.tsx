@@ -84,11 +84,12 @@ export default function ConditionsPage() {
 
             <section className="cancellation-card">
               <p className="eyebrow">Cancelaciones</p>
-              <h2>Si cancelas dentro de los tres días previos a la entrega, el anticipo no se devuelve.</h2>
+              <h2>Después de pagar el anticipo, una cancelación del cliente no genera devolución.</h2>
               <p>
-                Para cancelaciones anteriores a ese plazo, las condiciones deben consultarse
-                directamente con Lucátta. La forma de contar el plazo de tres días aún está pendiente de
-                precisión; no se interpreta automáticamente como 72 horas.
+                Antes del anticipo puedes abandonar la solicitud sin penalización. Si Lucátta no puede
+                cumplir el pedido, podrás elegir entre el reembolso íntegro de lo recibido o una
+                reprogramación. Cualquier cambio requiere aprobación y puede implicar una nueva
+                cotización y revisión de disponibilidad.
               </p>
             </section>
           </div>

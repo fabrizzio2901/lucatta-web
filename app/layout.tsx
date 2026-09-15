@@ -15,7 +15,7 @@ export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
   title: 'Lucátta | Pastelería artesanal en Puebla',
   description:
-    'Pasteles y postres personalizados. Próximamente, café, pan y postres en Casa Blanca, Puebla.',
+    'Pasteles y postres personalizados en Casa Blanca, Puebla.',
   icons: {
     icon: '/images/simbolo-lucatta.png',
   },

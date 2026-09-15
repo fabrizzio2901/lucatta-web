@@ -9,6 +9,7 @@ import {
   PartyPopper,
   Sparkles,
 } from 'lucide-react';
+import Link from 'next/link';
 import { Gallery } from '@/components/gallery';
 import { HeroCarousel } from '@/components/hero-carousel';
 import { SiteFooter } from '@/components/site-footer';
@@ -77,7 +78,7 @@ const faqs = [
   {
     question: '¿Puedo modificar o cancelar mi pedido?',
     answer:
-      'Los cambios dependen de la anticipación y del avance del pedido. Si cancelas dentro de los tres días previos a la entrega, el anticipo no se devuelve. Para cancelaciones anteriores, consulta directamente con Lucátta.',
+      'Los cambios requieren aprobación y dependen del avance del pedido. Después de pagar el anticipo, una cancelación del cliente no genera devolución.',
   },
 ];
 
@@ -96,8 +97,8 @@ export default function Home() {
             <h1>Tu celebración merece algo hecho especialmente para ti.</h1>
             <p className="hero-intro">
               Creamos pasteles y postres personalizados para acompañar tus
-              momentos más especiales. Muy pronto también podrás disfrutar café,
-              pan y postres en nuestro espacio de Casa Blanca.
+              momentos más especiales. También puedes visitarnos o recoger tu
+              pedido en nuestro local de Casa Blanca.
             </p>
             <div className="hero-actions">
               <a
@@ -128,7 +129,7 @@ export default function Home() {
           <span aria-hidden="true">✦</span>
           <p>Pedidos personalizados</p>
           <span aria-hidden="true">✦</span>
-          <p>Próximo local en Casa Blanca, Puebla</p>
+          <p>Local en Casa Blanca, Puebla</p>
         </section>
 
         {seasonalCampaign.enabled && (
@@ -168,7 +169,7 @@ export default function Home() {
             <p>
               Estas imágenes son ejemplos de trabajos por encargo. Cada detalle
               se acuerda contigo y una referencia no garantiza una réplica
-              exacta. La selección disponible en el futuro local podrá variar.
+              exacta. La selección disponible en el local puede variar.
             </p>
             <a
               className="button"
@@ -222,14 +223,12 @@ export default function Home() {
                   Consultar condiciones de pedidos{' '}
                   <ArrowRight aria-hidden="true" />
                 </a>
-                <a
+                <Link
                   className="button button-cream"
-                  href={WHATSAPP_URL}
-                  target="_blank"
-                  rel="noreferrer"
+                  href="/pedido"
                 >
-                  Pedir información
-                </a>
+                  Iniciar mi pedido
+                </Link>
               </div>
             </div>
           </div>

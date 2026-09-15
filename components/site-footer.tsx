@@ -28,7 +28,7 @@ export function SiteFooter() {
             <Clock3 aria-hidden="true" /> {siteStatus.whatsappHours}
           </p>
           <a href="/#local">
-            <MapPin aria-hidden="true" /> Nuestro próximo local
+            <MapPin aria-hidden="true" /> Nuestro local
           </a>
         </div>
         <div>

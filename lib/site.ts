@@ -4,7 +4,7 @@ export const WHATSAPP_URL =
 export const INSTAGRAM_URL = 'https://www.instagram.com/lucattapatisserie/';
 
 export const siteStatus = {
-  localOpen: false,
+  localOpen: true,
   eventsPageReady: true,
   address: 'Nacional 54, San Juan, 72990 Casa Blanca, Puebla',
   localHours: 'Lunes a domingo, de 9:00 a 19:00',

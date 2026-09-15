@@ -18,11 +18,8 @@ Falta confirmar el alcance de cada servicio: alimentos salados, bebidas, montaje
 
 ## Otros pendientes
 
-- Fecha de apertura y confirmación de que el local ya recibe visitantes.
 - Fotografías propias de fachada, interior y productos servidos en el local.
 - Fotografías propias de eventos y condiciones aplicables a esos servicios.
-- Forma de contar el plazo de tres días para cancelaciones.
-- Condiciones de cancelación anteriores a ese plazo, si se deciden especificar.
 - Estado operativo de la automatización de WhatsApp antes de anunciarla.
 - Campañas de temporada confirmadas y su fecha de retiro.
 
