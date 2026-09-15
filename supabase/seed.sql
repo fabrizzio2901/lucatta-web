@@ -1,0 +1,30 @@
+-- Datos de ejemplo: el propietario puede modificarlos o eliminarlos desde /administracion.
+insert into public.catalog_options (kind, name, slug, description, color_hex, sort_order, metadata)
+values
+  ('PRODUCT','Pastel personalizado','pastel-personalizado','Diseñado para tu celebración.',null,10,'{"category":"PASTEL","example":true}'),
+  ('PRODUCT','Cupcakes','cupcakes','Decorados de acuerdo con tu tema.',null,20,'{"category":"POSTRE","example":true}'),
+  ('PRODUCT','Mesa dulce','mesa-dulce','Selección personalizada para eventos.',null,30,'{"category":"EVENTO","example":true}'),
+  ('PRODUCT_TYPE','Redondo','redondo','Pastel de forma redonda.',null,10,'{"category":"PASTEL","example":true}'),
+  ('PRODUCT_TYPE','Rectangular','rectangular','Pastel de forma rectangular.',null,20,'{"category":"PASTEL","example":true}'),
+  ('PRODUCT_TYPE','Decorado individual','decorado-individual','Postre con decoración personalizada.',null,30,'{"category":"POSTRE","example":true}'),
+  ('PORTION','10 a 12 personas','10-12-personas','Pastel pequeño.',null,10,'{"category":"PASTEL","example":true}'),
+  ('PORTION','15 a 20 personas','15-20-personas','Pastel mediano.',null,20,'{"category":"PASTEL","example":true}'),
+  ('PORTION','25 a 30 personas','25-30-personas','Pastel grande.',null,30,'{"category":"PASTEL","example":true}'),
+  ('BREAD_FLAVOR','Vainilla','vainilla','Pan suave de vainilla.',null,10,'{"example":true}'),
+  ('BREAD_FLAVOR','Chocolate','chocolate','Pan intenso de chocolate.',null,20,'{"example":true}'),
+  ('BREAD_FLAVOR','Red velvet','red-velvet','Pan de cacao suave y color rojo.',null,30,'{"example":true}'),
+  ('FILLING','Fresas con crema','fresas-con-crema','Cremoso y fresco.',null,10,'{"example":true}'),
+  ('FILLING','Chocolate','relleno-chocolate','Relleno cremoso de chocolate.',null,20,'{"example":true}'),
+  ('FILLING','Cajeta','cajeta','Dulce de leche de cabra.',null,30,'{"example":true}'),
+  ('COLOR','Rosa','rosa','', '#E5A6B6',10,'{"example":true}'),
+  ('COLOR','Lila','lila','', '#BCA7D8',20,'{"example":true}'),
+  ('COLOR','Blanco','blanco','', '#F7F2EA',30,'{"example":true}'),
+  ('COLOR','Azul','azul','', '#8FB7D8',40,'{"example":true}'),
+  ('TIME_SLOT','10:00','10-00','',null,10,'{"time":"10:00","example":true}'),
+  ('TIME_SLOT','12:00','12-00','',null,20,'{"time":"12:00","example":true}'),
+  ('TIME_SLOT','14:00','14-00','',null,30,'{"time":"14:00","example":true}'),
+  ('TIME_SLOT','16:00','16-00','',null,40,'{"time":"16:00","example":true}'),
+  ('TIME_SLOT','18:00','18-00','',null,50,'{"time":"18:00","example":true}'),
+  ('PRESENTATION','Individual','individual','Una pieza por persona.',null,10,'{"category":"POSTRE","example":true}'),
+  ('PRESENTATION','Charola','charola','Presentación para compartir.',null,20,'{"category":"POSTRE","example":true}')
+on conflict (kind, slug) do nothing;
