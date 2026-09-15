@@ -30,6 +30,7 @@ export async function GET() {
       },
     );
   } catch (cause) {
+    console.error('[catalogo] No se pudo leer Supabase:', cause);
     const status = cause instanceof ConfigurationError ? 503 : 500;
     return NextResponse.json(
       {
