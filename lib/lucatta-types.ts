@@ -68,6 +68,41 @@ export type OrderRecord = {
   reference_image_url?: string | null;
   quote_total: number | null;
   quote_notes: string | null;
+  quote_expires_at: string | null;
+  deposit_amount: number | null;
+  payment_status: string;
+  deposit_reviewed_at: string | null;
+  deposit_rejection_reason: string | null;
+  confirmed_at: string | null;
+  receipts?: PaymentReceipt[];
+  created_at: string;
+  updated_at: string;
+};
+
+export type PaymentReceipt = {
+  id: string;
+  order_id: string;
+  provider_message_id: string;
+  media_id: string | null;
+  mime_type: string;
+  storage_path: string;
+  signed_url?: string | null;
+  status: 'PENDING' | 'APPROVED' | 'REJECTED';
+  amount: number | null;
+  rejection_reason: string | null;
+  received_at: string;
+  reviewed_at: string | null;
+  reviewed_by: string | null;
+};
+
+export type OrderDraft = {
+  id: string;
+  customer_name: string;
+  whatsapp: string;
+  payload: Record<string, unknown>;
+  status: 'OPEN' | 'CONVERTED' | 'ABANDONED';
+  last_activity_at: string;
+  reminder_sent_at: string | null;
   created_at: string;
   updated_at: string;
 };

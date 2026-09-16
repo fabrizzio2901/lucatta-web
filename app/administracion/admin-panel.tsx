@@ -10,10 +10,13 @@ import {
   useState,
 } from 'react';
 import {
+  CalendarDays,
   CalendarOff,
   CheckCircle2,
   ClipboardList,
   Clock3,
+  CreditCard,
+  Eye,
   ImagePlus,
   LayoutDashboard,
   LoaderCircle,
@@ -25,6 +28,7 @@ import {
   Settings2,
   Store,
   Trash2,
+  Users,
   X,
 } from 'lucide-react';
 import type {
@@ -33,9 +37,10 @@ import type {
   CatalogOption,
   Closure,
   OrderRecord,
+  PaymentReceipt,
 } from '@/lib/lucatta-types';
 
-type Tab = 'orders' | 'catalog' | 'settings';
+type Tab = 'orders' | 'agenda' | 'clients' | 'catalog' | 'settings';
 type JsonResult<T = unknown> = { ok?: boolean; error?: string } & T;
 
 const kindLabels: Record<CatalogKind, string> = {
@@ -62,6 +67,54 @@ const statusLabels: Record<string, string> = {
   ENTREGADA: 'Entregada',
   CANCELADA: 'Cancelada',
 };
+
+const detailLabels: Record<string, string> = {
+  producto: 'Producto',
+  tipo: 'Tipo',
+  ocasion: 'Ocasión',
+  porciones: 'Porciones',
+  cantidad: 'Cantidad',
+  sabor: 'Sabor del pan',
+  relleno: 'Relleno',
+  presentacion: 'Presentación',
+  colores: 'Colores',
+  diseno: 'Diseño',
+  textoPastel: 'Texto',
+  alergias: 'Alergias',
+  detalleAlergias: 'Detalle de alergias',
+  direccion: 'Dirección',
+  zona: 'Zona',
+  recibe: 'Recibe',
+  referencias: 'Referencias',
+  observaciones: 'Observaciones',
+};
+
+function readableValue(value: unknown): string {
+  if (Array.isArray(value)) return value.map(readableValue).join(', ');
+  if (typeof value === 'string') return value;
+  if (
+    typeof value === 'number' ||
+    typeof value === 'boolean' ||
+    typeof value === 'bigint'
+  )
+    return `${value}`;
+  if (value && typeof value === 'object') return JSON.stringify(value);
+  return '';
+}
+
+function readableDetails(details: Record<string, unknown>) {
+  return Object.entries(details)
+    .filter(([key, value]) => {
+      if (['nombre', 'whatsapp', 'aceptaAviso'].includes(key)) return false;
+      if (Array.isArray(value)) return value.length > 0;
+      if (typeof value === 'string') return value.trim() !== '';
+      return value !== null && value !== undefined;
+    })
+    .map(([key, value]) => ({
+      label: detailLabels[key] || key.replaceAll('_', ' '),
+      value: readableValue(value),
+    }));
+}
 
 const emptyOption: Omit<CatalogOption, 'id'> = {
   kind: 'PRODUCT',
@@ -113,6 +166,9 @@ export function AdminPanel() {
   const [draft, setDraft] = useState<Omit<CatalogOption, 'id'>>(emptyOption);
   const [image, setImage] = useState<File | null>(null);
   const [closureDraft, setClosureDraft] = useState(emptyClosure);
+  const [receiptReasons, setReceiptReasons] = useState<Record<string, string>>(
+    {},
+  );
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -386,6 +442,8 @@ export function AdminPanel() {
             status: order.status,
             quote_total: order.quote_total,
             quote_notes: order.quote_notes,
+            deposit_amount: order.deposit_amount,
+            payment_status: order.payment_status,
           }),
         },
       );
@@ -404,6 +462,56 @@ export function AdminPanel() {
     }
   };
 
+  const reviewReceipt = async (
+    order: OrderRecord,
+    receipt: PaymentReceipt,
+    action: 'APPROVE' | 'REJECT',
+  ) => {
+    setBusy(receipt.id);
+    setError('');
+    try {
+      const data = await api<{
+        item: OrderRecord;
+        receipt: PaymentReceipt | null;
+      }>(`/api/admin/orders/${order.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          receipt_action: action,
+          receipt_id: receipt.id,
+          deposit_amount: order.deposit_amount,
+          receipt_rejection_reason: receiptReasons[receipt.id] || '',
+        }),
+      });
+      setOrders((current) =>
+        current.map((entry) => {
+          if (entry.id !== order.id) return entry;
+          return {
+            ...entry,
+            ...data.item,
+            receipts: (entry.receipts || []).map((item) =>
+              item.id === receipt.id && data.receipt
+                ? { ...item, ...data.receipt }
+                : item,
+            ),
+          };
+        }),
+      );
+      feedback(
+        action === 'APPROVE'
+          ? `Anticipo aprobado. ${order.public_code} quedó confirmado.`
+          : 'Comprobante rechazado y cliente notificado.',
+      );
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : 'No fue posible revisar el comprobante.',
+      );
+    } finally {
+      setBusy('');
+    }
+  };
+
   const visibleCatalog = useMemo(
     () =>
       catalog
@@ -411,6 +519,53 @@ export function AdminPanel() {
         .sort((a, b) => a.sort_order - b.sort_order),
     [catalog, kind],
   );
+
+  const agenda = useMemo(() => {
+    const grouped = new Map<string, OrderRecord[]>();
+    orders
+      .filter((order) => order.status !== 'CANCELADA')
+      .forEach((order) => {
+        grouped.set(order.requested_date, [
+          ...(grouped.get(order.requested_date) || []),
+          order,
+        ]);
+      });
+    return [...grouped.entries()]
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([date, entries]) => ({
+        date,
+        entries: entries.sort((left, right) =>
+          left.requested_time.localeCompare(right.requested_time),
+        ),
+      }));
+  }, [orders]);
+
+  const clients = useMemo(() => {
+    const grouped = new Map<
+      string,
+      {
+        whatsapp: string;
+        name: string;
+        orders: OrderRecord[];
+        lastActivity: string;
+      }
+    >();
+    orders.forEach((order) => {
+      const current = grouped.get(order.whatsapp);
+      grouped.set(order.whatsapp, {
+        whatsapp: order.whatsapp,
+        name: order.customer_name,
+        orders: [...(current?.orders || []), order],
+        lastActivity:
+          !current || order.updated_at > current.lastActivity
+            ? order.updated_at
+            : current.lastActivity,
+      });
+    });
+    return [...grouped.values()].sort((left, right) =>
+      right.lastActivity.localeCompare(left.lastActivity),
+    );
+  }, [orders]);
 
   if (auth === 'checking') {
     return (
@@ -517,6 +672,18 @@ export function AdminPanel() {
             </b>
           </button>
           <button
+            className={tab === 'agenda' ? 'active' : ''}
+            onClick={() => setTab('agenda')}
+          >
+            <CalendarDays /> Agenda
+          </button>
+          <button
+            className={tab === 'clients' ? 'active' : ''}
+            onClick={() => setTab('clients')}
+          >
+            <Users /> Clientes
+          </button>
+          <button
             className={tab === 'catalog' ? 'active' : ''}
             onClick={() => setTab('catalog')}
           >
@@ -541,9 +708,13 @@ export function AdminPanel() {
             <h1>
               {tab === 'orders'
                 ? 'Pedidos'
-                : tab === 'catalog'
-                  ? 'Catálogo'
-                  : 'Horarios y disponibilidad'}
+                : tab === 'agenda'
+                  ? 'Agenda de entregas'
+                  : tab === 'clients'
+                    ? 'Clientes'
+                    : tab === 'catalog'
+                      ? 'Catálogo'
+                      : 'Horarios y disponibilidad'}
             </h1>
           </div>
           <a href="/" target="_blank" rel="noreferrer">
@@ -659,8 +830,124 @@ export function AdminPanel() {
                           Ver imagen de referencia
                         </a>
                       )}
-                      <pre>{JSON.stringify(order.details, null, 2)}</pre>
+                      <dl className="admin-detail-grid">
+                        {readableDetails(order.details).map((detail) => (
+                          <div key={detail.label}>
+                            <dt>{detail.label}</dt>
+                            <dd>{detail.value}</dd>
+                          </div>
+                        ))}
+                      </dl>
                     </details>
+                    {!!order.receipts?.length && (
+                      <section className="admin-receipts">
+                        <header>
+                          <CreditCard />
+                          <div>
+                            <strong>Comprobantes de anticipo</strong>
+                            <small>
+                              Revisa la imagen, captura el importe y aprueba o
+                              rechaza.
+                            </small>
+                          </div>
+                        </header>
+                        {order.receipts.map((receipt) => (
+                          <article key={receipt.id}>
+                            <div>
+                              <span
+                                className={`receipt-status ${receipt.status.toLowerCase()}`}
+                              >
+                                {receipt.status === 'PENDING'
+                                  ? 'Pendiente'
+                                  : receipt.status === 'APPROVED'
+                                    ? 'Aprobado'
+                                    : 'Rechazado'}
+                              </span>
+                              <small>
+                                {new Date(receipt.received_at).toLocaleString(
+                                  'es-MX',
+                                )}
+                              </small>
+                            </div>
+                            {receipt.signed_url && (
+                              <a
+                                className="button small button-outline"
+                                href={receipt.signed_url}
+                                target="_blank"
+                                rel="noreferrer"
+                              >
+                                <Eye /> Ver comprobante
+                              </a>
+                            )}
+                            {receipt.status === 'PENDING' && (
+                              <div className="admin-receipt-review">
+                                <label>
+                                  Importe recibido
+                                  <input
+                                    type="number"
+                                    min="0.01"
+                                    step="0.01"
+                                    value={order.deposit_amount ?? ''}
+                                    onChange={(event) =>
+                                      setOrders((current) =>
+                                        current.map((item) =>
+                                          item.id === order.id
+                                            ? {
+                                                ...item,
+                                                deposit_amount: event.target
+                                                  .value
+                                                  ? Number(event.target.value)
+                                                  : null,
+                                              }
+                                            : item,
+                                        ),
+                                      )
+                                    }
+                                    placeholder="$0.00"
+                                  />
+                                </label>
+                                <button
+                                  className="button small"
+                                  type="button"
+                                  disabled={busy === receipt.id}
+                                  onClick={() =>
+                                    reviewReceipt(order, receipt, 'APPROVE')
+                                  }
+                                >
+                                  <CheckCircle2 /> Aprobar y confirmar
+                                </button>
+                                <label className="wide">
+                                  Motivo si se rechaza
+                                  <input
+                                    value={receiptReasons[receipt.id] || ''}
+                                    onChange={(event) =>
+                                      setReceiptReasons((current) => ({
+                                        ...current,
+                                        [receipt.id]: event.target.value,
+                                      }))
+                                    }
+                                    placeholder="Ej. el importe o la referencia no son legibles"
+                                  />
+                                </label>
+                                <button
+                                  className="button small admin-danger-button"
+                                  type="button"
+                                  disabled={busy === receipt.id}
+                                  onClick={() =>
+                                    reviewReceipt(order, receipt, 'REJECT')
+                                  }
+                                >
+                                  <X /> Rechazar
+                                </button>
+                              </div>
+                            )}
+                            {receipt.rejection_reason && (
+                              <p>Motivo: {receipt.rejection_reason}</p>
+                            )}
+                          </article>
+                        ))}
+                      </section>
+                    )}
                     <div className="admin-order-controls">
                       <label>
                         Estado
@@ -709,6 +996,58 @@ export function AdminPanel() {
                           placeholder="$0.00"
                         />
                       </label>
+                      <label>
+                        Anticipo
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={order.deposit_amount ?? ''}
+                          onChange={(event) =>
+                            setOrders((current) =>
+                              current.map((item) =>
+                                item.id === order.id
+                                  ? {
+                                      ...item,
+                                      deposit_amount: event.target.value
+                                        ? Number(event.target.value)
+                                        : null,
+                                    }
+                                  : item,
+                              ),
+                            )
+                          }
+                          placeholder="$0.00"
+                        />
+                      </label>
+                      <label>
+                        Estado del pago
+                        <select
+                          value={order.payment_status || 'SIN_ANTICIPO'}
+                          onChange={(event) =>
+                            setOrders((current) =>
+                              current.map((item) =>
+                                item.id === order.id
+                                  ? {
+                                      ...item,
+                                      payment_status: event.target.value,
+                                    }
+                                  : item,
+                              ),
+                            )
+                          }
+                        >
+                          <option value="SIN_ANTICIPO">Sin anticipo</option>
+                          <option value="EN_REVISION">En revisión</option>
+                          <option value="ANTICIPO_VERIFICADO">
+                            Anticipo verificado
+                          </option>
+                          <option value="COMPROBANTE_RECHAZADO">
+                            Comprobante rechazado
+                          </option>
+                          <option value="PAGADO">Pagado</option>
+                        </select>
+                      </label>
                       <label className="wide">
                         Notas de cotización
                         <input
@@ -740,6 +1079,173 @@ export function AdminPanel() {
                     </div>
                   </article>
                 ))}
+              </div>
+            )}
+          </section>
+        )}
+
+        {tab === 'agenda' && (
+          <section className="admin-section">
+            <div className="admin-section-heading">
+              <div>
+                <p className="eyebrow">Carga por fecha</p>
+                <h2>Próximas entregas</h2>
+                <p>
+                  No existe un límite automático: el propietario decide cuándo
+                  dejar de recibir pedidos.
+                </p>
+              </div>
+            </div>
+            {!agenda.length ? (
+              <div className="admin-empty">
+                <CalendarDays />
+                <h2>No hay entregas programadas</h2>
+              </div>
+            ) : (
+              <div className="admin-agenda-list">
+                {agenda.map((day) => (
+                  <article className="admin-agenda-day" key={day.date}>
+                    <header>
+                      <div>
+                        <CalendarDays />
+                        <span>
+                          <strong>
+                            {new Date(
+                              `${day.date}T12:00:00`,
+                            ).toLocaleDateString('es-MX', {
+                              weekday: 'long',
+                              day: 'numeric',
+                              month: 'long',
+                              year: 'numeric',
+                            })}
+                          </strong>
+                          <small>{day.entries.length} pedido(s)</small>
+                        </span>
+                      </div>
+                      <button
+                        className="admin-text-button"
+                        onClick={() => setTab('orders')}
+                      >
+                        Administrar pedidos
+                      </button>
+                    </header>
+                    <div>
+                      {day.entries.map((order) => (
+                        <button
+                          className="admin-agenda-order"
+                          key={order.id}
+                          onClick={() => setTab('orders')}
+                        >
+                          <time>
+                            {String(order.requested_time).slice(0, 5)}
+                          </time>
+                          <span>
+                            <strong>{order.customer_name}</strong>
+                            <small>
+                              {order.public_code} ·{' '}
+                              {typeof order.details.producto === 'string'
+                                ? order.details.producto
+                                : order.category}
+                            </small>
+                          </span>
+                          <em>{statusLabels[order.status] || order.status}</em>
+                        </button>
+                      ))}
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+          </section>
+        )}
+
+        {tab === 'clients' && (
+          <section className="admin-section">
+            <div className="admin-stats">
+              <article>
+                <Users />
+                <span>
+                  <strong>{clients.length}</strong> clientes
+                </span>
+              </article>
+              <article>
+                <ClipboardList />
+                <span>
+                  <strong>{orders.length}</strong> pedidos registrados
+                </span>
+              </article>
+              <article>
+                <CheckCircle2 />
+                <span>
+                  <strong>
+                    {
+                      clients.filter((client) =>
+                        client.orders.some((order) =>
+                          ['CONFIRMADA', 'EN_PRODUCCION', 'LISTA'].includes(
+                            order.status,
+                          ),
+                        ),
+                      ).length
+                    }
+                  </strong>{' '}
+                  con pedidos activos
+                </span>
+              </article>
+            </div>
+            {!clients.length ? (
+              <div className="admin-empty">
+                <Users />
+                <h2>Aún no hay clientes</h2>
+              </div>
+            ) : (
+              <div className="admin-client-grid">
+                {clients.map((client) => {
+                  const active = client.orders.filter(
+                    (order) =>
+                      !['ENTREGADA', 'CANCELADA'].includes(order.status),
+                  ).length;
+                  const latest = [...client.orders].sort((left, right) =>
+                    right.created_at.localeCompare(left.created_at),
+                  )[0];
+                  return (
+                    <article
+                      className="admin-client-card"
+                      key={client.whatsapp}
+                    >
+                      <header>
+                        <span>{client.name.slice(0, 2).toUpperCase()}</span>
+                        <div>
+                          <strong>{client.name}</strong>
+                          <a
+                            href={`https://wa.me/52${client.whatsapp}`}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            {client.whatsapp}
+                          </a>
+                        </div>
+                      </header>
+                      <dl>
+                        <div>
+                          <dt>Pedidos</dt>
+                          <dd>{client.orders.length}</dd>
+                        </div>
+                        <div>
+                          <dt>Activos</dt>
+                          <dd>{active}</dd>
+                        </div>
+                        <div>
+                          <dt>Último folio</dt>
+                          <dd>{latest.public_code}</dd>
+                        </div>
+                      </dl>
+                      <small>
+                        Última actividad:{' '}
+                        {new Date(client.lastActivity).toLocaleString('es-MX')}
+                      </small>
+                    </article>
+                  );
+                })}
               </div>
             )}
           </section>

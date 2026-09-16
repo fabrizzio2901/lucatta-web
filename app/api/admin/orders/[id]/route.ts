@@ -1,11 +1,21 @@
 import { NextResponse } from 'next/server';
 import { requireOwner } from '@/lib/admin-auth';
 import { adminErrorResponse } from '@/lib/admin-catalog';
-import type { OrderRecord } from '@/lib/lucatta-types';
+import {
+  enqueueWhatsapp,
+  reservationExpiryIso,
+} from '@/lib/lucatta-automation';
+import type { OrderRecord, PaymentReceipt } from '@/lib/lucatta-types';
 import { supabaseFetch } from '@/lib/supabase-rest';
 
 export const runtime = 'nodejs';
 type Context = { params: Promise<{ id: string }> };
+type PatchOrder = Partial<OrderRecord> & {
+  receipt_action?: 'APPROVE' | 'REJECT';
+  receipt_id?: string;
+  receipt_rejection_reason?: string;
+};
+
 const statuses = new Set([
   'NUEVA_SOLICITUD',
   'EN_REVISION',
@@ -19,13 +29,32 @@ const statuses = new Set([
   'CANCELADA',
 ]);
 
+const paymentStatuses = new Set([
+  'SIN_ANTICIPO',
+  'EN_REVISION',
+  'ANTICIPO_VERIFICADO',
+  'COMPROBANTE_RECHAZADO',
+  'PAGADO',
+]);
+
 export async function PATCH(request: Request, context: Context) {
   try {
     const user = await requireOwner();
     const { id } = await context.params;
-    const value = (await request.json()) as Partial<OrderRecord>;
+    const value = (await request.json()) as PatchOrder;
     if (value.status && !statuses.has(value.status))
       throw new Error('Estado no válido.');
+    if (value.payment_status && !paymentStatuses.has(value.payment_status))
+      throw new Error('Estado de pago no válido.');
+    if (
+      value.deposit_amount !== undefined &&
+      value.deposit_amount !== null &&
+      (!Number.isFinite(Number(value.deposit_amount)) ||
+        Number(value.deposit_amount) < 0)
+    ) {
+      throw new Error('El anticipo no es válido.');
+    }
+
     const beforeRows = await supabaseFetch<OrderRecord[]>(
       `/rest/v1/orders?id=eq.${encodeURIComponent(id)}&select=*`,
     );
@@ -35,12 +64,90 @@ export async function PATCH(request: Request, context: Context) {
         { ok: false, error: 'Pedido no encontrado.' },
         { status: 404 },
       );
+
     const payload: Record<string, unknown> = {};
     if (value.status) payload.status = value.status;
     if (value.quote_total !== undefined)
       payload.quote_total = value.quote_total;
     if (value.quote_notes !== undefined)
       payload.quote_notes = value.quote_notes;
+    if (value.deposit_amount !== undefined)
+      payload.deposit_amount = value.deposit_amount;
+    if (value.payment_status !== undefined)
+      payload.payment_status = value.payment_status;
+
+    let reviewedReceipt: PaymentReceipt | null = null;
+    if (value.receipt_action) {
+      if (!value.receipt_id) throw new Error('Selecciona un comprobante.');
+      const receiptRows = await supabaseFetch<PaymentReceipt[]>(
+        `/rest/v1/payment_receipts?id=eq.${encodeURIComponent(value.receipt_id)}&order_id=eq.${encodeURIComponent(id)}&select=*`,
+      );
+      const receipt = receiptRows[0];
+      if (!receipt) throw new Error('El comprobante ya no está disponible.');
+
+      if (value.receipt_action === 'APPROVE') {
+        const amount = Number(value.deposit_amount);
+        if (!Number.isFinite(amount) || amount <= 0) {
+          throw new Error('Captura el importe recibido antes de aprobar.');
+        }
+        const reviewedAt = new Date().toISOString();
+        const receiptUpdate = await supabaseFetch<PaymentReceipt[]>(
+          `/rest/v1/payment_receipts?id=eq.${receipt.id}`,
+          {
+            method: 'PATCH',
+            headers: { Prefer: 'return=representation' },
+            body: JSON.stringify({
+              status: 'APPROVED',
+              amount,
+              rejection_reason: null,
+              reviewed_at: reviewedAt,
+              reviewed_by: user.email,
+            }),
+          },
+        );
+        reviewedReceipt = receiptUpdate[0] || null;
+        Object.assign(payload, {
+          status: 'CONFIRMADA',
+          deposit_amount: amount,
+          payment_status: 'ANTICIPO_VERIFICADO',
+          deposit_reviewed_at: reviewedAt,
+          deposit_rejection_reason: null,
+          confirmed_at: reviewedAt,
+          quote_expires_at: null,
+        });
+      } else {
+        const reason = String(value.receipt_rejection_reason || '').trim();
+        if (!reason)
+          throw new Error('Explica por qué se rechazó el comprobante.');
+        const reviewedAt = new Date().toISOString();
+        const receiptUpdate = await supabaseFetch<PaymentReceipt[]>(
+          `/rest/v1/payment_receipts?id=eq.${receipt.id}`,
+          {
+            method: 'PATCH',
+            headers: { Prefer: 'return=representation' },
+            body: JSON.stringify({
+              status: 'REJECTED',
+              amount: null,
+              rejection_reason: reason,
+              reviewed_at: reviewedAt,
+              reviewed_by: user.email,
+            }),
+          },
+        );
+        reviewedReceipt = receiptUpdate[0] || null;
+        Object.assign(payload, {
+          status: 'RESERVA_PENDIENTE',
+          deposit_amount: null,
+          payment_status: 'COMPROBANTE_RECHAZADO',
+          deposit_reviewed_at: reviewedAt,
+          deposit_rejection_reason: reason,
+          quote_expires_at: reservationExpiryIso(),
+        });
+      }
+    } else if (value.status === 'CONFIRMADA' && !before.confirmed_at) {
+      payload.confirmed_at = new Date().toISOString();
+    }
+
     const rows = await supabaseFetch<OrderRecord[]>(
       `/rest/v1/orders?id=eq.${encodeURIComponent(id)}`,
       {
@@ -49,12 +156,13 @@ export async function PATCH(request: Request, context: Context) {
         body: JSON.stringify(payload),
       },
     );
-    if (!rows[0])
+    const order = rows[0];
+    if (!order)
       return NextResponse.json(
         { ok: false, error: 'Pedido no encontrado.' },
         { status: 404 },
       );
-    const order = rows[0];
+
     const quoteChanged =
       before.status !== 'COTIZADA' ||
       before.quote_total !== order.quote_total ||
@@ -68,33 +176,61 @@ export async function PATCH(request: Request, context: Context) {
         style: 'currency',
         currency: 'MXN',
       });
-      await supabaseFetch('/rest/v1/outbox', {
-        method: 'POST',
-        body: JSON.stringify({
-          recipient: order.whatsapp,
-          message_type: 'QUOTE',
-          payload: {
-            text: `Tu cotización ${order.public_code} está lista.\nTotal: ${amount}${order.quote_notes ? `\n${order.quote_notes}` : ''}\n\nPara reservar se requiere el anticipo indicado por Lucátta.`,
-            actions: [
-              { id: `quote_accept:${order.id}`, title: 'Quiero reservar' },
-              { id: `order_edit:${order.id}`, title: 'Ajustar' },
-              { id: `order_cancel:${order.id}`, title: 'Por ahora no' },
-            ],
-          },
-        }),
-      });
+      await enqueueWhatsapp(
+        order.whatsapp,
+        {
+          text: `Tu cotización ${order.public_code} está lista.\nTotal: ${amount}${order.quote_notes ? `\n${order.quote_notes}` : ''}\n\nPara reservar se requiere el anticipo indicado por Lucátta.`,
+          actions: [
+            { id: `quote_accept:${order.id}`, title: 'Quiero reservar' },
+            { id: `order_edit:${order.id}`, title: 'Ajustar' },
+            { id: `order_cancel:${order.id}`, title: 'Por ahora no' },
+          ],
+        },
+        'QUOTE',
+      );
     }
+
+    if (value.receipt_action === 'APPROVE') {
+      const total = Number(order.quote_total || 0);
+      const deposit = Number(order.deposit_amount || 0);
+      const balance = Math.max(total - deposit, 0).toLocaleString('es-MX', {
+        style: 'currency',
+        currency: 'MXN',
+      });
+      await enqueueWhatsapp(
+        order.whatsapp,
+        {
+          text: `¡Anticipo verificado! Tu pedido ${order.public_code} quedó confirmado para el ${order.requested_date} a las ${String(order.requested_time).slice(0, 5)}.\nSaldo pendiente: ${balance}. Puedes pagarlo antes o al momento de la entrega.`,
+        },
+        'ORDER_CONFIRMED',
+        `order-confirmed:${order.id}`,
+      );
+    } else if (value.receipt_action === 'REJECT') {
+      await enqueueWhatsapp(
+        order.whatsapp,
+        {
+          text: `No pudimos validar el comprobante de ${order.public_code}: ${value.receipt_rejection_reason}. Por favor envía uno nuevo por este chat. Conservaremos temporalmente el espacio hasta las 00:00 de hoy.`,
+        },
+        'TEXT',
+        `receipt-rejected:${value.receipt_id}`,
+      );
+    }
+
     await supabaseFetch('/rest/v1/audit_log', {
       method: 'POST',
       body: JSON.stringify({
         actor_email: user.email,
-        action: 'UPDATE',
+        action: value.receipt_action || 'UPDATE',
         entity_type: 'order',
         entity_id: id,
         changes: payload,
       }),
     });
-    return NextResponse.json({ ok: true, item: order });
+    return NextResponse.json({
+      ok: true,
+      item: order,
+      receipt: reviewedReceipt,
+    });
   } catch (cause) {
     return adminErrorResponse(cause, 'No fue posible actualizar el pedido.');
   }

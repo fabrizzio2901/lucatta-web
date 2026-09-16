@@ -3120,26 +3120,250 @@ h1 {
   text-decoration: underline;
 }
 
-.admin-order-card pre {
+.admin-detail-grid {
   background: #f8f4ee;
   border-radius: 0.6rem;
-  font:
-    0.76rem/1.5 ui-monospace,
-    SFMono-Regular,
-    Menlo,
-    monospace;
-  max-height: 280px;
-  overflow: auto;
+  display: grid;
+  gap: 0.8rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 0.8rem 0 0;
   padding: 1rem;
-  white-space: pre-wrap;
+}
+
+.admin-detail-grid div {
+  min-width: 0;
+}
+
+.admin-detail-grid dt {
+  color: var(--admin-muted);
+  font-size: 0.7rem;
+  text-transform: capitalize;
+}
+
+.admin-detail-grid dd {
+  color: var(--admin-ink);
+  line-height: 1.45;
+  margin: 0.2rem 0 0;
+  overflow-wrap: anywhere;
 }
 
 .admin-order-controls {
   align-items: end;
   display: grid;
   gap: 0.7rem;
-  grid-template-columns: 1fr 0.7fr 1.4fr auto;
+  grid-template-columns: repeat(4, minmax(130px, 1fr));
   padding-top: 1rem;
+}
+
+.admin-order-controls .wide {
+  grid-column: span 3;
+}
+
+.admin-receipts {
+  background: #fffaf3;
+  border: 1px solid #dfcaa9;
+  border-radius: 0.9rem;
+  margin-top: 1rem;
+  padding: 1rem;
+}
+
+.admin-receipts > header,
+.admin-receipts > article,
+.admin-receipts > article > div:first-child {
+  align-items: center;
+  display: flex;
+  gap: 0.7rem;
+}
+
+.admin-receipts > header svg {
+  color: var(--admin-wine);
+  height: 22px;
+  width: 22px;
+}
+
+.admin-receipts > header div,
+.admin-receipts > article > div:first-child {
+  display: grid;
+}
+
+.admin-receipts small {
+  color: var(--admin-muted);
+}
+
+.admin-receipts > article {
+  border-top: 1px solid #eadbc5;
+  flex-wrap: wrap;
+  margin-top: 0.9rem;
+  padding-top: 0.9rem;
+}
+
+.receipt-status {
+  font-size: 0.75rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.receipt-status.pending {
+  color: #9a621a;
+}
+
+.receipt-status.approved {
+  color: #347047;
+}
+
+.receipt-status.rejected {
+  color: #9b332d;
+}
+
+.admin-receipt-review {
+  align-items: end;
+  display: grid !important;
+  flex: 1 0 100%;
+  gap: 0.7rem;
+  grid-template-columns: minmax(140px, 0.7fr) auto minmax(240px, 1.4fr) auto;
+}
+
+.admin-danger-button {
+  background: #8e332e !important;
+}
+
+.admin-agenda-list {
+  display: grid;
+  gap: 1rem;
+}
+
+.admin-agenda-day,
+.admin-client-card {
+  background: var(--admin-card);
+  border: 1px solid var(--admin-line);
+  border-radius: 1rem;
+}
+
+.admin-agenda-day {
+  overflow: hidden;
+}
+
+.admin-agenda-day > header {
+  align-items: center;
+  background: #f8f1e9;
+  display: flex;
+  justify-content: space-between;
+  padding: 1rem 1.2rem;
+}
+
+.admin-agenda-day > header > div,
+.admin-agenda-day > header span {
+  align-items: center;
+  display: flex;
+  gap: 0.8rem;
+}
+
+.admin-agenda-day > header span {
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.admin-agenda-day > header svg {
+  color: var(--admin-wine);
+}
+
+.admin-agenda-day > header small,
+.admin-agenda-order small,
+.admin-client-card small {
+  color: var(--admin-muted);
+}
+
+.admin-agenda-order {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-top: 1px solid var(--admin-line);
+  color: inherit;
+  cursor: pointer;
+  display: grid;
+  font: inherit;
+  gap: 1rem;
+  grid-template-columns: 70px minmax(0, 1fr) auto;
+  padding: 1rem 1.2rem;
+  text-align: left;
+  width: 100%;
+}
+
+.admin-agenda-order time {
+  color: var(--admin-wine);
+  font-size: 1.2rem;
+  font-weight: 800;
+}
+
+.admin-agenda-order span {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.admin-agenda-order em {
+  background: #f2e5df;
+  border-radius: 1rem;
+  color: var(--admin-wine);
+  font-size: 0.72rem;
+  font-style: normal;
+  padding: 0.4rem 0.65rem;
+}
+
+.admin-client-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.admin-client-card {
+  padding: 1.2rem;
+}
+
+.admin-client-card > header {
+  align-items: center;
+  display: flex;
+  gap: 0.8rem;
+}
+
+.admin-client-card > header > span {
+  align-items: center;
+  background: #f2e5df;
+  border-radius: 50%;
+  color: var(--admin-wine);
+  display: flex;
+  font-weight: 800;
+  height: 42px;
+  justify-content: center;
+  width: 42px;
+}
+
+.admin-client-card > header div {
+  display: grid;
+}
+
+.admin-client-card > header a {
+  color: var(--admin-wine);
+  font-size: 0.8rem;
+}
+
+.admin-client-card dl {
+  border-bottom: 1px solid var(--admin-line);
+  border-top: 1px solid var(--admin-line);
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  margin: 1rem 0;
+  padding: 0.8rem 0;
+}
+
+.admin-client-card dt {
+  color: var(--admin-muted);
+  font-size: 0.68rem;
+}
+
+.admin-client-card dd {
+  font-weight: 800;
+  margin: 0.25rem 0 0;
 }
 
 .button.small {
@@ -3561,7 +3785,7 @@ h1 {
 
   .admin-sidebar nav {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(5, 1fr);
     width: 100%;
   }
 
@@ -3589,6 +3813,14 @@ h1 {
 
   .admin-order-controls {
     grid-template-columns: repeat(2, 1fr);
+  }
+
+  .admin-client-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .admin-receipt-review {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .admin-order-controls .wide,
@@ -3637,6 +3869,9 @@ h1 {
   .admin-option-grid,
   .admin-order-summary,
   .admin-order-controls,
+  .admin-detail-grid,
+  .admin-client-grid,
+  .admin-receipt-review,
   .admin-two,
   .admin-three {
     grid-template-columns: 1fr;
@@ -3659,5 +3894,14 @@ h1 {
   .admin-order-controls .wide,
   .admin-order-controls .button {
     grid-column: auto;
+  }
+
+  .admin-agenda-order {
+    grid-template-columns: 58px minmax(0, 1fr);
+  }
+
+  .admin-agenda-order em {
+    grid-column: 2;
+    justify-self: start;
   }
 }

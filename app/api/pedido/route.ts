@@ -4,6 +4,7 @@ import type {
   Closure,
   OrderRecord,
 } from '@/lib/lucatta-types';
+import { enqueueWhatsapp } from '@/lib/lucatta-automation';
 import {
   ConfigurationError,
   supabaseFetch,
@@ -20,6 +21,7 @@ type PedidoPayload = {
   nombre?: string;
   whatsapp?: string;
   referenciaImagen?: string | null;
+  draftId?: string | null;
   [key: string]: unknown;
 };
 
@@ -191,6 +193,7 @@ export async function POST(request: Request) {
     const {
       referenciaImagen: _referencePath,
       aceptaAviso: _accepts,
+      draftId,
       ...details
     } = value;
     const inserted = await supabaseFetch<OrderRecord[]>('/rest/v1/orders', {
@@ -211,6 +214,16 @@ export async function POST(request: Request) {
     const order = inserted[0];
     if (!order) throw new Error('No se creó la solicitud.');
 
+    if (typeof draftId === 'string' && draftId) {
+      await supabaseFetch(
+        `/rest/v1/order_drafts?id=eq.${encodeURIComponent(draftId)}&whatsapp=eq.${whatsapp}`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify({ status: 'CONVERTED' }),
+        },
+      );
+    }
+
     const summary = [
       `Nueva solicitud ${order.public_code}`,
       `${name} · ${category}`,
@@ -219,23 +232,21 @@ export async function POST(request: Request) {
         ? 'Recoge en Lucátta'
         : 'Solicita entrega a domicilio',
     ].join('\n');
-    await supabaseFetch('/rest/v1/outbox', {
-      method: 'POST',
-      body: JSON.stringify({
-        recipient: whatsapp,
-        message_type: 'ORDER_SUMMARY',
-        payload: {
-          order_id: order.id,
-          public_code: order.public_code,
-          text: `${summary}\n\n¿Los datos son correctos?`,
-          actions: [
-            { id: `order_confirm:${order.id}`, title: 'Sí, enviar' },
-            { id: `order_edit:${order.id}`, title: 'Cambiar' },
-            { id: `order_cancel:${order.id}`, title: 'Cancelar' },
-          ],
-        },
-      }),
-    });
+    await enqueueWhatsapp(
+      whatsapp,
+      {
+        order_id: order.id,
+        public_code: order.public_code,
+        text: `${summary}\n\n¿Los datos son correctos?`,
+        actions: [
+          { id: `order_confirm:${order.id}`, title: 'Sí, enviar' },
+          { id: `order_edit:${order.id}`, title: 'Cambiar' },
+          { id: `order_cancel:${order.id}`, title: 'Cancelar' },
+        ],
+      },
+      'ORDER_SUMMARY',
+      `order-summary:${order.id}`,
+    );
     return NextResponse.json({ ok: true, result: { code: order.public_code } });
   } catch (cause) {
     console.error('Lucatta order creation failed', cause);

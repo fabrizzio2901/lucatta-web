@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { requireOwner } from '@/lib/admin-auth';
 import { adminErrorResponse } from '@/lib/admin-catalog';
-import type { OrderRecord } from '@/lib/lucatta-types';
+import type { OrderRecord, PaymentReceipt } from '@/lib/lucatta-types';
 import { signedStorageUrl, supabaseFetch } from '@/lib/supabase-rest';
 
 export const runtime = 'nodejs';
@@ -12,6 +12,20 @@ export async function GET() {
     const items = await supabaseFetch<OrderRecord[]>(
       '/rest/v1/orders?select=*&order=created_at.desc&limit=200',
     );
+    const receipts = items.length
+      ? await supabaseFetch<PaymentReceipt[]>(
+          '/rest/v1/payment_receipts?select=*&order=received_at.desc&limit=500',
+        )
+      : [];
+    const receiptsWithUrls = await Promise.all(
+      receipts.map(async (receipt) => ({
+        ...receipt,
+        signed_url: await signedStorageUrl(
+          'payment-receipts',
+          receipt.storage_path,
+        ).catch(() => null),
+      })),
+    );
     const withReferences = await Promise.all(
       items.map(async (item) => ({
         ...item,
@@ -21,6 +35,9 @@ export async function GET() {
               item.reference_image_path,
             ).catch(() => null)
           : null,
+        receipts: receiptsWithUrls.filter(
+          (receipt) => receipt.order_id === item.id,
+        ),
       })),
     );
     return NextResponse.json({ ok: true, items: withReferences });
