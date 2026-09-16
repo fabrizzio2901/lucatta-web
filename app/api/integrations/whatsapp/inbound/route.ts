@@ -115,10 +115,6 @@ export async function POST(request: Request) {
           'TEXT',
           `receipt-ack:${messageId}`,
         );
-        alerts.push({
-          subject: `Anticipo por revisar · ${order.public_code}`,
-          text: `Llegó un comprobante para ${order.public_code}. Revísalo desde ${site}/administracion.`,
-        });
         return NextResponse.json({
           ok: true,
           duplicate: false,

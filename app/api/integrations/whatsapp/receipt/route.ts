@@ -33,7 +33,40 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false }, { status: 401 });
 
   try {
-    const value = (await request.json()) as ReceiptPayload;
+    const contentType = request.headers.get('content-type') || '';
+    let value: ReceiptPayload;
+    let bytes: Buffer;
+
+    if (contentType.includes('multipart/form-data')) {
+      const form = await request.formData();
+      const file = form.get('file');
+      if (!(file instanceof File)) {
+        return NextResponse.json(
+          { ok: false, error: 'No se recibió el archivo del comprobante.' },
+          { status: 400 },
+        );
+      }
+      const formText = (name: string) => {
+        const entry = form.get(name);
+        return typeof entry === 'string' ? entry : '';
+      };
+      value = {
+        messageId: formText('messageId'),
+        from: formText('from'),
+        mediaId: formText('mediaId'),
+        mimeType: formText('mimeType') || file.type,
+        fileName: file.name,
+      };
+      bytes = Buffer.from(await file.arrayBuffer());
+    } else {
+      value = (await request.json()) as ReceiptPayload;
+      const base64 = String(value.dataBase64 || '').replace(
+        /^data:[^;]+;base64,/,
+        '',
+      );
+      bytes = Buffer.from(base64, 'base64');
+    }
+
     const messageId = String(value.messageId || '').trim();
     const rawWhatsapp = String(value.from || '').replace(/\D/g, '');
     const whatsapp =
@@ -44,12 +77,8 @@ export async function POST(request: Request) {
       .split(';')[0]
       .toLowerCase();
     const extension = mimeExtensions[mimeType];
-    const base64 = String(value.dataBase64 || '').replace(
-      /^data:[^;]+;base64,/,
-      '',
-    );
 
-    if (!messageId || whatsapp.length !== 10 || !extension || !base64) {
+    if (!messageId || whatsapp.length !== 10 || !extension || !bytes.length) {
       return NextResponse.json(
         { ok: false, error: 'El comprobante recibido no es válido.' },
         { status: 400 },
@@ -74,17 +103,15 @@ export async function POST(request: Request) {
     );
     const order = orders[0];
     if (!order) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error:
-            'No existe una reserva pendiente asociada a este número de WhatsApp.',
-        },
-        { status: 409 },
-      );
+      return NextResponse.json({
+        ok: true,
+        skipped: true,
+        reason:
+          'No existe una reserva pendiente asociada a este número de WhatsApp.',
+        alerts: [],
+      });
     }
 
-    const bytes = Buffer.from(base64, 'base64');
     if (!bytes.length || bytes.length > 10 * 1024 * 1024) {
       return NextResponse.json(
         { ok: false, error: 'El comprobante excede el límite de 10 MB.' },
@@ -96,7 +123,7 @@ export async function POST(request: Request) {
     await uploadObject(
       'payment-receipts',
       storagePath,
-      bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+      Uint8Array.from(bytes).buffer,
       mimeType,
     );
 
