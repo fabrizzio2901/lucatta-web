@@ -28,6 +28,14 @@ function authorized(request: Request) {
   );
 }
 
+function normalizeWhatsapp(value?: string) {
+  const digits = String(value || '').replace(/\D/g, '');
+  // Meta can still send Mexican mobile numbers with the legacy 521 prefix.
+  if (digits.startsWith('521') && digits.length === 13) return digits.slice(3);
+  if (digits.startsWith('52') && digits.length === 12) return digits.slice(2);
+  return digits;
+}
+
 export async function POST(request: Request) {
   if (!authorized(request))
     return NextResponse.json({ ok: false }, { status: 401 });
@@ -68,11 +76,7 @@ export async function POST(request: Request) {
     }
 
     const messageId = String(value.messageId || '').trim();
-    const rawWhatsapp = String(value.from || '').replace(/\D/g, '');
-    const whatsapp =
-      rawWhatsapp.startsWith('52') && rawWhatsapp.length === 12
-        ? rawWhatsapp.slice(2)
-        : rawWhatsapp;
+    const whatsapp = normalizeWhatsapp(value.from);
     const mimeType = String(value.mimeType || '')
       .split(';')[0]
       .toLowerCase();
