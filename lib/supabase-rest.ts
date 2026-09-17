@@ -107,5 +107,11 @@ export async function signedStorageUrl(
   );
   if (result.signedURL.startsWith('http')) return result.signedURL;
   const { url } = configuration('service');
-  return `${url}${result.signedURL}`;
+  const signedPath = result.signedURL.startsWith('/')
+    ? result.signedURL
+    : `/${result.signedURL}`;
+  const storagePath = signedPath.startsWith('/storage/v1/')
+    ? signedPath
+    : `/storage/v1${signedPath}`;
+  return `${url}${storagePath}`;
 }
