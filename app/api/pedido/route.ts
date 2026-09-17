@@ -4,9 +4,14 @@ import type {
   Closure,
   OrderRecord,
 } from '@/lib/lucatta-types';
-import { enqueueWhatsapp } from '@/lib/lucatta-automation';
+import {
+  enqueueWhatsapp,
+  verifyOrderEditToken,
+} from '@/lib/lucatta-automation';
+import { orderSummaryMessage } from '@/lib/lucatta-copy';
 import {
   ConfigurationError,
+  deleteObject,
   supabaseFetch,
   uploadObject,
 } from '@/lib/supabase-rest';
@@ -22,6 +27,8 @@ type PedidoPayload = {
   whatsapp?: string;
   referenciaImagen?: string | null;
   draftId?: string | null;
+  editOrderId?: string | null;
+  editToken?: string | null;
   [key: string]: unknown;
 };
 
@@ -46,6 +53,67 @@ function mexicoNow() {
     date: `${parts.year}-${parts.month}-${parts.day}`,
     minutes: Number(parts.hour) * 60 + Number(parts.minute),
   };
+}
+
+const editableStatuses = new Set([
+  'NUEVA_SOLICITUD',
+  'EN_REVISION',
+  'COTIZADA',
+]);
+
+export async function GET(request: Request) {
+  try {
+    const url = new URL(request.url);
+    const orderId = url.searchParams.get('orderId') || '';
+    const token = url.searchParams.get('token') || '';
+    if (!orderId || !token) {
+      return NextResponse.json(
+        { ok: false, error: 'El enlace de edición no es válido.' },
+        { status: 400 },
+      );
+    }
+    const rows = await supabaseFetch<OrderRecord[]>(
+      `/rest/v1/orders?id=eq.${encodeURIComponent(orderId)}&select=*`,
+    );
+    const order = rows[0];
+    if (!order || !verifyOrderEditToken(order.id, order.whatsapp, token)) {
+      return NextResponse.json(
+        { ok: false, error: 'Este enlace de edición no es válido o ya venció.' },
+        { status: 403 },
+      );
+    }
+    if (!editableStatuses.has(order.status)) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error:
+            'Este pedido ya no puede modificarse desde la web. Escríbenos por WhatsApp para revisarlo.',
+        },
+        { status: 409 },
+      );
+    }
+    return NextResponse.json({
+      ok: true,
+      item: {
+        ...order.details,
+        categoria: order.category,
+        fecha: order.requested_date,
+        hora: String(order.requested_time).slice(0, 5),
+        modalidad: order.fulfillment,
+        nombre: order.customer_name,
+        whatsapp: order.whatsapp,
+        aceptaAviso: false,
+      },
+      code: order.public_code,
+      hasReference: Boolean(order.reference_image_path),
+    });
+  } catch (cause) {
+    console.error('Lucatta order edit load failed', cause);
+    return NextResponse.json(
+      { ok: false, error: 'No pudimos abrir esta solicitud para editarla.' },
+      { status: 500 },
+    );
+  }
 }
 
 export async function POST(request: Request) {
@@ -194,24 +262,91 @@ export async function POST(request: Request) {
       referenciaImagen: _referencePath,
       aceptaAviso: _accepts,
       draftId,
+      editOrderId,
+      editToken,
       ...details
     } = value;
-    const inserted = await supabaseFetch<OrderRecord[]>('/rest/v1/orders', {
-      method: 'POST',
-      headers: { Prefer: 'return=representation' },
-      body: JSON.stringify({
-        customer_name: name.slice(0, 120),
-        whatsapp,
-        category,
-        requested_date: date,
-        requested_time: time,
-        fulfillment,
-        details,
-        reference_image_path: referenciaImagen,
-        source: 'WEB',
-      }),
-    });
-    const order = inserted[0];
+    let order: OrderRecord | undefined;
+    let updatedExisting = false;
+    if (typeof editOrderId === 'string' && editOrderId) {
+      const existingRows = await supabaseFetch<OrderRecord[]>(
+        `/rest/v1/orders?id=eq.${encodeURIComponent(editOrderId)}&select=*`,
+      );
+      const existing = existingRows[0];
+      if (
+        !existing ||
+        !verifyOrderEditToken(
+          existing.id,
+          existing.whatsapp,
+          String(editToken || ''),
+        ) ||
+        existing.whatsapp !== whatsapp
+      ) {
+        return NextResponse.json(
+          { ok: false, error: 'El enlace de edición no es válido.' },
+          { status: 403 },
+        );
+      }
+      if (!editableStatuses.has(existing.status)) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error:
+              'Este pedido ya no puede modificarse desde la web. Escríbenos por WhatsApp para revisarlo.',
+          },
+          { status: 409 },
+        );
+      }
+      const updated = await supabaseFetch<OrderRecord[]>(
+        `/rest/v1/orders?id=eq.${encodeURIComponent(existing.id)}`,
+        {
+          method: 'PATCH',
+          headers: { Prefer: 'return=representation' },
+          body: JSON.stringify({
+            customer_name: name.slice(0, 120),
+            category,
+            requested_date: date,
+            requested_time: time,
+            fulfillment,
+            details,
+            reference_image_path:
+              referenciaImagen || existing.reference_image_path,
+            status: 'NUEVA_SOLICITUD',
+            quote_total: null,
+            quote_notes: null,
+            quote_expires_at: null,
+            deposit_amount: null,
+            payment_status: 'SIN_ANTICIPO',
+          }),
+        },
+      );
+      order = updated[0];
+      if (
+        reference &&
+        existing.reference_image_path &&
+        existing.reference_image_path !== referenciaImagen
+      ) {
+        await deleteObject('order-references', [existing.reference_image_path]);
+      }
+      updatedExisting = true;
+    } else {
+      const inserted = await supabaseFetch<OrderRecord[]>('/rest/v1/orders', {
+        method: 'POST',
+        headers: { Prefer: 'return=representation' },
+        body: JSON.stringify({
+          customer_name: name.slice(0, 120),
+          whatsapp,
+          category,
+          requested_date: date,
+          requested_time: time,
+          fulfillment,
+          details,
+          reference_image_path: referenciaImagen,
+          source: 'WEB',
+        }),
+      });
+      order = inserted[0];
+    }
     if (!order) throw new Error('No se creó la solicitud.');
 
     if (typeof draftId === 'string' && draftId) {
@@ -224,28 +359,22 @@ export async function POST(request: Request) {
       );
     }
 
-    const summary = [
-      `Nueva solicitud ${order.public_code}`,
-      `${name} · ${category}`,
-      `${date} a las ${time}`,
-      fulfillment === 'RECOGIDA'
-        ? 'Recoge en Lucátta'
-        : 'Solicita entrega a domicilio',
-    ].join('\n');
     await enqueueWhatsapp(
       whatsapp,
       {
         order_id: order.id,
         public_code: order.public_code,
-        text: `${summary}\n\n¿Los datos son correctos?`,
+        text: orderSummaryMessage(order),
         actions: [
-          { id: `order_confirm:${order.id}`, title: 'Sí, enviar' },
-          { id: `order_edit:${order.id}`, title: 'Cambiar' },
-          { id: `order_cancel:${order.id}`, title: 'Cancelar' },
+          { id: `order_confirm:${order.id}`, title: '✅ Enviar' },
+          { id: `order_edit:${order.id}`, title: '✏️ Cambiar' },
+          { id: `order_cancel:${order.id}`, title: '❌ Cancelar' },
         ],
       },
       'ORDER_SUMMARY',
-      `order-summary:${order.id}`,
+      updatedExisting
+        ? `order-summary:${order.id}:edit:${Date.now()}`
+        : `order-summary:${order.id}`,
     );
     return NextResponse.json({ ok: true, result: { code: order.public_code } });
   } catch (cause) {

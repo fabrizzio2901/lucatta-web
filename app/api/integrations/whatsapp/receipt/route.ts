@@ -157,7 +157,15 @@ export async function POST(request: Request) {
     await enqueueWhatsapp(
       whatsapp,
       {
-        text: `Recibimos tu comprobante para ${order.public_code}. Conservaremos el espacio mientras el equipo de Lucátta termina de revisarlo.`,
+        text: [
+          '¡Recibido! 🧾✨',
+          '',
+          `Tu comprobante del pedido *${order.public_code}* ya está en revisión.`,
+          '',
+          'Conservaremos el espacio mientras el equipo de Lucátta termina de validarlo.',
+          '',
+          'Tu pedido todavía no se considera confirmado. Te avisaremos por este mismo chat. 💜',
+        ].join('\n'),
       },
       'TEXT',
       `receipt-ack:${messageId}`,

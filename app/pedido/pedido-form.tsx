@@ -106,6 +106,10 @@ export function PedidoForm() {
   const [sending, setSending] = useState(false);
   const [sentCode, setSentCode] = useState('');
   const [draftId, setDraftId] = useState('');
+  const [editOrderId, setEditOrderId] = useState('');
+  const [editToken, setEditToken] = useState('');
+  const [editingCode, setEditingCode] = useState('');
+  const [existingReference, setExistingReference] = useState(false);
 
   useEffect(() => {
     fetch('/api/catalogo')
@@ -136,6 +140,8 @@ export function PedidoForm() {
   useEffect(() => {
     let timeout = 0;
     try {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('edit')) return;
       const stored = window.localStorage.getItem('lucatta-order-draft');
       if (!stored) return;
       const restored = JSON.parse(stored) as {
@@ -152,6 +158,53 @@ export function PedidoForm() {
       window.localStorage.removeItem('lucatta-order-draft');
     }
     return () => window.clearTimeout(timeout);
+  }, []);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const edit = params.get('edit') || '';
+    const token = params.get('token') || '';
+    const requestedCategory = params.get('categoria');
+    if (!edit || !token) {
+      if (['PASTEL', 'POSTRE', 'EVENTO'].includes(requestedCategory || '')) {
+        const timeout = window.setTimeout(() => {
+          setPedido((current) => ({
+            ...current,
+            categoria: requestedCategory as Pedido['categoria'],
+          }));
+        });
+        return () => window.clearTimeout(timeout);
+      }
+      return;
+    }
+
+    fetch(
+      `/api/pedido?orderId=${encodeURIComponent(edit)}&token=${encodeURIComponent(token)}`,
+    )
+      .then(async (response) => {
+        const data = (await response.json()) as {
+          ok?: boolean;
+          error?: string;
+          item?: Partial<Pedido>;
+          code?: string;
+          hasReference?: boolean;
+        };
+        if (!response.ok || !data.ok || !data.item) {
+          throw new Error(data.error || 'No pudimos abrir esta solicitud.');
+        }
+        setPedido((current) => ({ ...current, ...data.item }));
+        setEditOrderId(edit);
+        setEditToken(token);
+        setEditingCode(data.code || '');
+        setExistingReference(Boolean(data.hasReference));
+      })
+      .catch((cause) =>
+        setError(
+          cause instanceof Error
+            ? cause.message
+            : 'No pudimos abrir esta solicitud.',
+        ),
+      );
   }, []);
 
   useEffect(() => {
@@ -279,6 +332,8 @@ export function PedidoForm() {
         JSON.stringify({
           ...pedido,
           draftId: draftId || null,
+          editOrderId: editOrderId || null,
+          editToken: editToken || null,
           whatsapp: pedido.whatsapp.replace(/\D/g, ''),
         }),
       );
@@ -383,7 +438,11 @@ export function PedidoForm() {
           <Check aria-hidden="true" />
         </span>
         <p className="eyebrow">Solicitud {sentCode}</p>
-        <h2>Tu resumen ya está listo.</h2>
+        <h2>
+          {editingCode
+            ? 'Tus cambios ya están listos.'
+            : 'Tu resumen ya está listo.'}
+        </h2>
         <p>
           Te enviaremos el resumen a WhatsApp para que lo confirmes. Después una
           persona de Lucátta preparará la cotización.
@@ -401,6 +460,15 @@ export function PedidoForm() {
       onSubmit={submit}
       noValidate
     >
+      {editingCode && (
+        <output className="order-editing-banner">
+          <strong>Estás actualizando la solicitud {editingCode}</strong>
+          <span>
+            Conservamos tus datos para que solo cambies lo necesario. La
+            cotización anterior se revisará nuevamente.
+          </span>
+        </output>
+      )}
       <div
         className="order-progress"
         aria-label={`Paso ${step + 1} de ${steps.length}`}
@@ -894,7 +962,13 @@ export function PedidoForm() {
             </div>
             <div>
               <dt>Referencia</dt>
-              <dd>{reference ? reference.name : 'Sin imagen'}</dd>
+              <dd>
+                {reference
+                  ? reference.name
+                  : existingReference
+                    ? 'Se conserva la imagen anterior'
+                    : 'Sin imagen'}
+              </dd>
             </div>
             <div>
               <dt>Contacto</dt>

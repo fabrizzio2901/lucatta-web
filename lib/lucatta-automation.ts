@@ -1,4 +1,5 @@
 import { supabaseFetch } from '@/lib/supabase-rest';
+import { createHmac, timingSafeEqual } from 'node:crypto';
 
 export async function enqueueWhatsapp(
   recipient: string,
@@ -55,4 +56,27 @@ export function reservationExpiryIso(date = new Date()) {
 export function withinServiceHours(date = new Date()) {
   const { hour } = mexicoDateParts(date);
   return hour >= 9 && hour < 19;
+}
+
+function editSecret() {
+  const secret = process.env.LUCATTA_AUTOMATION_KEY;
+  if (!secret) throw new Error('LUCATTA_AUTOMATION_KEY no está configurada.');
+  return secret;
+}
+
+export function createOrderEditToken(orderId: string, whatsapp: string) {
+  return createHmac('sha256', editSecret())
+    .update(`${orderId}:${whatsapp}`)
+    .digest('hex');
+}
+
+export function verifyOrderEditToken(
+  orderId: string,
+  whatsapp: string,
+  token: string,
+) {
+  const expected = createOrderEditToken(orderId, whatsapp);
+  const provided = String(token || '').toLowerCase();
+  if (provided.length !== expected.length) return false;
+  return timingSafeEqual(Buffer.from(provided), Buffer.from(expected));
 }

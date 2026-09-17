@@ -1,5 +1,12 @@
 import { NextResponse } from 'next/server';
 import { enqueueWhatsapp, withinServiceHours } from '@/lib/lucatta-automation';
+import {
+  firstName,
+  formatDateEs,
+  formatMoney,
+  formatTime,
+  orderProductLabel,
+} from '@/lib/lucatta-copy';
 import type {
   OrderDraft,
   OrderRecord,
@@ -28,15 +35,22 @@ export async function POST(request: Request) {
     let depositReminders = 0;
     let expiredReservations = 0;
     let abandonedReminders = 0;
+    let deliveryReminders = 0;
 
     const [reservationsToRemind, expiredReservationRows] = await Promise.all([
       supabaseFetch<
         Pick<
           OrderRecord,
-          'id' | 'public_code' | 'whatsapp' | 'quote_expires_at'
+          | 'id'
+          | 'public_code'
+          | 'whatsapp'
+          | 'customer_name'
+          | 'requested_date'
+          | 'quote_total'
+          | 'quote_expires_at'
         >[]
       >(
-        `/rest/v1/orders?status=eq.RESERVA_PENDIENTE&quote_expires_at=gt.${encodeURIComponent(nowIso)}&quote_expires_at=lte.${encodeURIComponent(reminderLimit.toISOString())}&select=id,public_code,whatsapp,quote_expires_at`,
+        `/rest/v1/orders?status=eq.RESERVA_PENDIENTE&quote_expires_at=gt.${encodeURIComponent(nowIso)}&quote_expires_at=lte.${encodeURIComponent(reminderLimit.toISOString())}&select=id,public_code,whatsapp,customer_name,requested_date,quote_total,quote_expires_at`,
       ),
       supabaseFetch<
         Pick<
@@ -52,7 +66,18 @@ export async function POST(request: Request) {
       await enqueueWhatsapp(
         order.whatsapp,
         {
-          text: `Recordatorio de Lucátta: la reserva temporal de ${order.public_code} vence hoy a las 00:00. Envíanos tu comprobante por este chat; si llega antes del vencimiento, conservaremos el espacio hasta concluir la verificación.`,
+          text: [
+            `¡Hola${firstName(order.customer_name) ? `, ${firstName(order.customer_name)}` : ''}! 😊💜`,
+            '',
+            `Solo paso a recordarte que está pendiente el anticipo de *${formatMoney(Number(order.quote_total || 0) / 2)}* para reservar tu pedido.`,
+            '',
+            `📅 *Fecha solicitada:* ${formatDateEs(order.requested_date)}`,
+            `🔖 *Folio:* ${order.public_code}`,
+            '',
+            'La reserva temporal vence hoy a las *00:00*.',
+            '',
+            'Si el comprobante llega antes del vencimiento, conservaremos el espacio hasta concluir la verificación.',
+          ].join('\n'),
         },
         'TEXT',
         `deposit-reminder:${order.id}:${order.quote_expires_at}`,
@@ -72,7 +97,13 @@ export async function POST(request: Request) {
       await enqueueWhatsapp(
         order.whatsapp,
         {
-          text: `La reserva temporal de ${order.public_code} venció porque no recibimos el comprobante antes de las 00:00. Tu cotización sigue registrada, pero necesitaremos volver a revisar disponibilidad antes de reservar.`,
+          text: [
+            `La reserva temporal de *${order.public_code}* venció porque no recibimos el comprobante antes de las 00:00.`,
+            '',
+            'Tu cotización sigue registrada, pero necesitaremos volver a revisar disponibilidad antes de reservar.',
+            '',
+            'Si deseas retomarla, escribe *ASESOR*. 💜',
+          ].join('\n'),
         },
         'TEXT',
         `reservation-expired:${order.id}:${order.quote_expires_at}`,
@@ -97,7 +128,17 @@ export async function POST(request: Request) {
         await enqueueWhatsapp(
           draft.whatsapp,
           {
-            text: `Hola, ${draft.customer_name}. Tu solicitud en Lucátta quedó sin terminar. Puedes retomarla aquí: ${site}/pedido\n\nSi ya no la necesitas, no hace falta responder.`,
+            text: [
+              `Hola${firstName(draft.customer_name) ? `, ${firstName(draft.customer_name)}` : ''} 😊`,
+              '',
+              '¿Pudiste terminar tu pedido?',
+              '',
+              'Si te surgió alguna duda mientras lo armabas, podemos ayudarte. 💜',
+              '',
+              `🎂 *Continuar mi pedido*\n${site}/pedido`,
+              '',
+              'Si prefieres hacerlo después, no necesitas responder.',
+            ].join('\n'),
           },
           'TEXT',
           `draft-reminder:${draft.id}`,
@@ -111,6 +152,45 @@ export async function POST(request: Request) {
         });
         abandonedReminders += 1;
       }
+    }
+
+    const mexicoToday = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Mexico_City',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(now);
+    const tomorrow = new Date(`${mexicoToday}T12:00:00Z`);
+    tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+    const tomorrowDate = tomorrow.toISOString().slice(0, 10);
+    const deliveries = await supabaseFetch<OrderRecord[]>(
+      `/rest/v1/orders?requested_date=eq.${tomorrowDate}&status=in.(CONFIRMADA,EN_PRODUCCION,LISTA)&select=*`,
+    );
+    for (const order of deliveries) {
+      const total = Number(order.quote_total || 0);
+      const paid = Number(order.deposit_amount || 0);
+      await enqueueWhatsapp(
+        order.whatsapp,
+        {
+          text: [
+            `¡Hola${firstName(order.customer_name) ? `, ${firstName(order.customer_name)}` : ''}! 🎂💜`,
+            '',
+            'Tu pedido está programado para mañana.',
+            '',
+            `🎂 *Pedido:* ${orderProductLabel(order)}`,
+            `📅 *Fecha:* ${formatDateEs(order.requested_date)}`,
+            `🕐 *Hora:* ${formatTime(order.requested_time)}`,
+            `💰 *Saldo pendiente:* ${formatMoney(Math.max(total - paid, 0))}`,
+            '',
+            'Puedes liquidarlo al recoger o recibir tu pedido. Si prefieres agilizar la entrega, envíanos tu comprobante por aquí.',
+            '',
+            '¡Ya falta poquito! ✨',
+          ].join('\n'),
+        },
+        'TEXT',
+        `delivery-reminder:${order.id}:${tomorrowDate}`,
+      );
+      deliveryReminders += 1;
     }
 
     const cutoff = new Date();
@@ -145,6 +225,7 @@ export async function POST(request: Request) {
       deposit_reminders: depositReminders,
       expired_reservations: expiredReservations,
       abandoned_reminders: abandonedReminders,
+      delivery_reminders: deliveryReminders,
     });
   } catch (cause) {
     console.error('Lucatta scheduler failed', cause);

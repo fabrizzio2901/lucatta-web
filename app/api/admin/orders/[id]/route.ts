@@ -6,6 +6,13 @@ import {
   reservationExpiryIso,
 } from '@/lib/lucatta-automation';
 import type { OrderRecord, PaymentReceipt } from '@/lib/lucatta-types';
+import {
+  firstName,
+  formatDateEs,
+  formatMoney,
+  formatTime,
+  orderProductLabel,
+} from '@/lib/lucatta-copy';
 import { supabaseFetch } from '@/lib/supabase-rest';
 
 export const runtime = 'nodejs';
@@ -172,17 +179,32 @@ export async function PATCH(request: Request, context: Context) {
       order.quote_total !== null &&
       quoteChanged
     ) {
-      const amount = Number(order.quote_total).toLocaleString('es-MX', {
-        style: 'currency',
-        currency: 'MXN',
-      });
+      const amount = formatMoney(order.quote_total);
+      const deposit = formatMoney(Number(order.quote_total) / 2);
+      const shortName = firstName(order.customer_name);
       await enqueueWhatsapp(
         order.whatsapp,
         {
-          text: `Tu cotización ${order.public_code} está lista.\nTotal: ${amount}${order.quote_notes ? `\n${order.quote_notes}` : ''}\n\nPara reservar se requiere el anticipo indicado por Lucátta.`,
+          text: [
+            `¡Ya revisamos tu solicitud${shortName ? `, ${shortName}` : ''}! ✨`,
+            '',
+            'Podemos preparar tu pedido.',
+            '',
+            `🎂 *${orderProductLabel(order)}*`,
+            `📅 *Fecha:* ${formatDateEs(order.requested_date)}`,
+            `🕐 *Hora:* ${formatTime(order.requested_time)}`,
+            '',
+            `💰 *Total:* ${amount} MXN`,
+            `💳 *Anticipo sugerido para reservar:* ${deposit} MXN`,
+            ...(order.quote_notes
+              ? ['', `📝 *Notas del equipo:* ${order.quote_notes}`]
+              : []),
+            '',
+            'Recuerda que la fecha queda reservada únicamente después de validar el anticipo.',
+          ].join('\n'),
           actions: [
-            { id: `quote_accept:${order.id}`, title: 'Quiero reservar' },
-            { id: `order_edit:${order.id}`, title: 'Ajustar' },
+            { id: `quote_accept:${order.id}`, title: '💜 Reservar' },
+            { id: `order_edit:${order.id}`, title: '✏️ Ajustar' },
             { id: `order_cancel:${order.id}`, title: 'Por ahora no' },
           ],
         },
@@ -193,14 +215,31 @@ export async function PATCH(request: Request, context: Context) {
     if (value.receipt_action === 'APPROVE') {
       const total = Number(order.quote_total || 0);
       const deposit = Number(order.deposit_amount || 0);
-      const balance = Math.max(total - deposit, 0).toLocaleString('es-MX', {
-        style: 'currency',
-        currency: 'MXN',
-      });
+      const balance = formatMoney(Math.max(total - deposit, 0));
+      const shortName = firstName(order.customer_name);
       await enqueueWhatsapp(
         order.whatsapp,
         {
-          text: `¡Anticipo verificado! Tu pedido ${order.public_code} quedó confirmado para el ${order.requested_date} a las ${String(order.requested_time).slice(0, 5)}.\nSaldo pendiente: ${balance}. Puedes pagarlo antes o al momento de la entrega.`,
+          text: [
+            `¡Listo${shortName ? `, ${shortName}` : ''}! 🎉💜`,
+            '',
+            'Tu anticipo fue confirmado y ahora sí:',
+            '',
+            '*¡Tu pedido quedó agendado!*',
+            '',
+            `🎂 *Pedido:* ${orderProductLabel(order)}`,
+            `📅 *Fecha:* ${formatDateEs(order.requested_date)}`,
+            `🕐 *Hora:* ${formatTime(order.requested_time)}`,
+            '',
+            `💰 *Total:* ${formatMoney(total)}`,
+            `✅ *Anticipo:* ${formatMoney(deposit)}`,
+            `💳 *Saldo pendiente:* ${balance}`,
+            '',
+            `🔖 *Folio:* ${order.public_code}`,
+            '',
+            'Puedes pagar el saldo antes o al momento de la entrega.',
+            'Guarda este mensaje por si necesitas consultar tu pedido más adelante. 💜',
+          ].join('\n'),
         },
         'ORDER_CONFIRMED',
         `order-confirmed:${order.id}`,
@@ -209,7 +248,16 @@ export async function PATCH(request: Request, context: Context) {
       await enqueueWhatsapp(
         order.whatsapp,
         {
-          text: `No pudimos validar el comprobante de ${order.public_code}: ${value.receipt_rejection_reason}. Por favor envía uno nuevo por este chat. Conservaremos temporalmente el espacio hasta las 00:00 de hoy.`,
+          text: [
+            'Necesitamos revisar nuevamente tu comprobante. 🧾',
+            '',
+            `🔖 *Pedido:* ${order.public_code}`,
+            `📌 *Motivo:* ${value.receipt_rejection_reason}`,
+            '',
+            'Por favor, envía un comprobante nuevo por este chat.',
+            '',
+            'Conservaremos temporalmente el espacio hasta las *00:00 de hoy*. 💜',
+          ].join('\n'),
         },
         'TEXT',
         `receipt-rejected:${value.receipt_id}`,

@@ -1,9 +1,19 @@
 import { NextResponse } from 'next/server';
 import type { BusinessSettings, OrderRecord } from '@/lib/lucatta-types';
 import {
+  createOrderEditToken,
   enqueueWhatsapp,
   reservationExpiryIso,
+  withinServiceHours,
 } from '@/lib/lucatta-automation';
+import {
+  firstName,
+  formatDateEs,
+  formatMoney,
+  locationMessage,
+  statusLabel,
+  welcomeMessage,
+} from '@/lib/lucatta-copy';
 import { supabaseFetch } from '@/lib/supabase-rest';
 
 export const runtime = 'nodejs';
@@ -51,27 +61,36 @@ export async function POST(request: Request) {
     if (duplicate.length)
       return NextResponse.json({ ok: true, duplicate: true, alerts: [] });
 
+    const profileName = String(message.profileName || '').trim();
+    const customerPayload: Record<string, unknown> = {
+      whatsapp,
+      last_seen_at: new Date().toISOString(),
+    };
+    if (profileName) customerPayload.display_name = profileName;
     const customers = await supabaseFetch<
       { id: string; display_name: string | null }[]
     >('/rest/v1/customers?on_conflict=whatsapp', {
       method: 'POST',
       headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
-      body: JSON.stringify({
-        whatsapp,
-        display_name: String(message.profileName || '').trim() || null,
-        last_seen_at: new Date().toISOString(),
-      }),
+      body: JSON.stringify(customerPayload),
     });
     const customer = customers[0];
+    let conversationState = 'MENU';
     if (customer) {
-      await supabaseFetch('/rest/v1/conversations?on_conflict=customer_id', {
-        method: 'POST',
-        headers: { Prefer: 'resolution=merge-duplicates' },
-        body: JSON.stringify({
-          customer_id: customer.id,
-          last_message_at: new Date().toISOString(),
-        }),
-      });
+      const conversations = await supabaseFetch<{ state: string }[]>(
+        '/rest/v1/conversations?on_conflict=customer_id',
+        {
+          method: 'POST',
+          headers: {
+            Prefer: 'resolution=merge-duplicates,return=representation',
+          },
+          body: JSON.stringify({
+            customer_id: customer.id,
+            last_message_at: new Date().toISOString(),
+          }),
+        },
+      );
+      conversationState = conversations[0]?.state || 'MENU';
     }
     await supabaseFetch('/rest/v1/inbound_events', {
       method: 'POST',
@@ -91,9 +110,25 @@ export async function POST(request: Request) {
     const text = String(message.text || '')
       .trim()
       .toLowerCase();
+    const requestedMenu = action === 'menu_home' || /^men[uú]$/.test(text);
     const site =
       process.env.NEXT_PUBLIC_SITE_URL || 'https://lucatta-web.vercel.app';
     const alerts: { subject: string; text: string }[] = [];
+
+    const setConversationState = async (state: string) => {
+      if (!customer) return;
+      await supabaseFetch(
+        `/rest/v1/conversations?customer_id=eq.${encodeURIComponent(customer.id)}`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify({
+            state,
+            last_message_at: new Date().toISOString(),
+          }),
+        },
+      );
+      conversationState = state;
+    };
 
     if (message.mediaId) {
       const orders = await supabaseFetch<
@@ -114,7 +149,15 @@ export async function POST(request: Request) {
         await enqueueWhatsapp(
           whatsapp,
           {
-            text: `Recibimos tu comprobante para ${order.public_code}. Conservaremos el espacio mientras el equipo de Lucátta termina de revisarlo.`,
+            text: [
+              '¡Recibido! 🧾✨',
+              '',
+              `Tu comprobante del pedido *${order.public_code}* ya está en revisión.`,
+              '',
+              'Conservaremos el espacio mientras el equipo de Lucátta termina de validarlo.',
+              '',
+              'Te avisaremos por este mismo chat. 💜',
+            ].join('\n'),
           },
           'TEXT',
           `receipt-ack:${messageId}`,
@@ -128,20 +171,91 @@ export async function POST(request: Request) {
       }
     }
 
-    if (action.startsWith('order_confirm:')) {
+    if (
+      conversationState === 'HUMAN_HANDOFF' &&
+      !requestedMenu &&
+      !action &&
+      !message.mediaId
+    ) {
+      return NextResponse.json({
+        ok: true,
+        duplicate: false,
+        humanHandoff: true,
+        alerts,
+      });
+    }
+
+    if (requestedMenu) {
+      await setConversationState('MENU');
+      const [orders, settingsRows] = await Promise.all([
+        supabaseFetch<Pick<OrderRecord, 'id'>[]>(
+          `/rest/v1/orders?whatsapp=eq.${whatsapp}&status=not.in.(ENTREGADA,CANCELADA)&select=id&limit=1`,
+        ),
+        supabaseFetch<BusinessSettings[]>(
+          '/rest/v1/business_settings?id=eq.1&select=*',
+        ),
+      ]);
+      const settings = settingsRows[0];
+      const hasOrders = orders.length > 0;
+      const actions = settings?.accepting_orders
+        ? [
+            { id: 'menu_quote', title: '🎂 Cotizar' },
+            ...(hasOrders
+              ? [{ id: 'menu_orders', title: '📦 Mis pedidos' }]
+              : [{ id: 'menu_location', title: '📍 Horario' }]),
+            ...(hasOrders
+              ? [{ id: 'menu_location', title: '📍 Horario' }]
+              : [{ id: 'menu_human', title: '🙋 Ayuda' }]),
+          ]
+        : [
+            ...(hasOrders
+              ? [{ id: 'menu_orders', title: '📦 Mis pedidos' }]
+              : []),
+            { id: 'menu_location', title: '📍 Horario' },
+            { id: 'menu_human', title: '🙋 Ayuda' },
+          ];
+      await enqueueWhatsapp(
+        whatsapp,
+        {
+          text: `Claro 😊\n\nRegresemos al menú.\n\n${welcomeMessage(customer?.display_name || message.profileName, hasOrders, settings?.accepting_orders !== false, settings?.paused_message)}`,
+          actions,
+        },
+        'MENU',
+      );
+    } else if (action.startsWith('order_confirm:')) {
       const id = action.split(':')[1];
       const rows = await supabaseFetch<
-        Pick<OrderRecord, 'id' | 'public_code'>[]
+        Pick<OrderRecord, 'id' | 'public_code' | 'customer_name'>[]
       >(
-        `/rest/v1/orders?id=eq.${encodeURIComponent(id)}&whatsapp=eq.${whatsapp}&select=id,public_code`,
+        `/rest/v1/orders?id=eq.${encodeURIComponent(id)}&whatsapp=eq.${whatsapp}&select=id,public_code,customer_name`,
       );
       if (rows[0]) {
         await supabaseFetch(`/rest/v1/orders?id=eq.${id}`, {
           method: 'PATCH',
           body: JSON.stringify({ status: 'EN_REVISION' }),
         });
+        const shortName = firstName(rows[0].customer_name);
+        const serviceNote = withinServiceHours()
+          ? 'Estamos dentro de nuestro horario. El equipo la revisará y te responderá por este mismo chat.'
+          : 'En este momento estamos fuera de horario. El equipo comenzará a revisarla a partir de las *9:00*.';
         await enqueueWhatsapp(whatsapp, {
-          text: `¡Gracias! Enviaremos tu solicitud ${rows[0].public_code} a revisión humana. La fecha aún no está reservada.`,
+          text: [
+            `¡Perfecto${shortName ? `, ${shortName}` : ''}! 💜`,
+            '',
+            `Ya envié tu solicitud *${rows[0].public_code}* al equipo de Lucátta.`,
+            '',
+            'Ahora revisaremos:',
+            '',
+            '✓ Disponibilidad para la fecha',
+            '✓ Diseño y detalles solicitados',
+            '✓ Posibilidad de elaboración',
+            '✓ Precio final',
+            '',
+            '📌 *Tu fecha todavía no está reservada.*',
+            'Quedará apartada cuando recibamos y validemos tu anticipo.',
+            '',
+            `${serviceNote} 💜`,
+          ].join('\n'),
         });
         alerts.push({
           subject: `Nueva solicitud ${rows[0].public_code}`,
@@ -155,14 +269,46 @@ export async function POST(request: Request) {
         { method: 'PATCH', body: JSON.stringify({ status: 'CANCELADA' }) },
       );
       await enqueueWhatsapp(whatsapp, {
-        text: 'Cancelamos esta solicitud. Como todavía no existía un anticipo verificado, no hay penalización.',
+        text: [
+          'No hay problema 😊💜',
+          '',
+          'Cancelamos esta solicitud. Como todavía no existía un anticipo verificado, no hay penalización.',
+          '',
+          'Cuando quieras retomarla, escribe *MENÚ*.',
+        ].join('\n'),
       });
     } else if (action.startsWith('order_edit:')) {
-      await enqueueWhatsapp(whatsapp, {
-        text: `Puedes enviar una versión corregida aquí: ${site}/pedido\nEscribe en observaciones el folio que deseas reemplazar para que no se duplique al revisarlo.`,
-      });
+      const id = action.split(':')[1];
+      const rows = await supabaseFetch<
+        Pick<OrderRecord, 'id' | 'public_code' | 'whatsapp'>[]
+      >(
+        `/rest/v1/orders?id=eq.${encodeURIComponent(id)}&whatsapp=eq.${whatsapp}&select=id,public_code,whatsapp`,
+      );
+      const order = rows[0];
+      if (order) {
+        const token = createOrderEditToken(order.id, order.whatsapp);
+        const editUrl = `${site}/pedido?edit=${encodeURIComponent(order.id)}&token=${token}`;
+        await enqueueWhatsapp(whatsapp, {
+          text: [
+            '¡Claro! 😊',
+            '',
+            `Abre tu solicitud *${order.public_code}* para cambiar solamente lo que necesites.`,
+            '',
+            'Conservaremos la información que ya elegiste y no crearemos un pedido duplicado.',
+            '',
+            `✏️ ${editUrl}`,
+          ].join('\n'),
+        });
+      }
     } else if (action.startsWith('quote_accept:')) {
       const id = action.split(':')[1];
+      const rows = await supabaseFetch<OrderRecord[]>(
+        `/rest/v1/orders?id=eq.${encodeURIComponent(id)}&whatsapp=eq.${whatsapp}&select=*`,
+      );
+      const order = rows[0];
+      if (!order) {
+        return NextResponse.json({ ok: true, duplicate: false, alerts });
+      }
       await supabaseFetch(
         `/rest/v1/orders?id=eq.${encodeURIComponent(id)}&whatsapp=eq.${whatsapp}`,
         {
@@ -174,15 +320,113 @@ export async function POST(request: Request) {
           }),
         },
       );
+      const deposit = Number(order.quote_total || 0) / 2;
       await enqueueWhatsapp(whatsapp, {
-        text: 'Apartamos temporalmente el espacio hasta las 00:00 de hoy. Envíanos tu comprobante de anticipo por este chat. Si llega antes de las 00:00, conservaremos el cupo hasta concluir la verificación.',
+        text: [
+          '¡Perfecto! 💜',
+          '',
+          'Apartamos temporalmente el espacio hasta las *00:00 de hoy*.',
+          '',
+          `💰 *Anticipo sugerido del 50%:* ${formatMoney(deposit)}`,
+          '',
+          'Puedes pagar por transferencia, depósito o efectivo, según lo acordado con el equipo.',
+          '',
+          'Cuando termines, envía aquí mismo la foto, captura o PDF de tu comprobante. 🧾',
+          '',
+          'Si llega antes de las 00:00, conservaremos el cupo hasta concluir la verificación.',
+        ].join('\n'),
+        actions: [
+          { id: `deposit_paid:${order.id}`, title: '✅ Ya pagué' },
+          { id: `deposit_question:${order.id}`, title: '❓ Tengo una duda' },
+          { id: `order_cancel:${order.id}`, title: '❌ No continuar' },
+        ],
+      });
+    } else if (action.startsWith('deposit_paid:')) {
+      await enqueueWhatsapp(whatsapp, {
+        text: [
+          '¡Perfecto! 😊',
+          '',
+          'Envíame ahora tu comprobante aquí abajo. 👇',
+          '',
+          'Puede ser:',
+          '📷 Foto',
+          '🖼️ Captura',
+          '📄 PDF',
+        ].join('\n'),
+      });
+    } else if (action.startsWith('deposit_question:')) {
+      await setConversationState('HUMAN_HANDOFF');
+      await enqueueWhatsapp(whatsapp, {
+        text: 'Claro 😊\n\nCuéntanos en *un solo mensaje* tu duda para que el equipo pueda ayudarte más rápido. 💜',
+      });
+      alerts.push({
+        subject: `Duda sobre anticipo · ${whatsapp}`,
+        text: `${message.profileName || 'Cliente'} solicita ayuda con su anticipo. Revisa WhatsApp.`,
       });
     } else if (
       action === 'menu_quote' ||
       /cotizar|pedido nuevo|nuevo pedido/.test(text)
     ) {
       await enqueueWhatsapp(whatsapp, {
-        text: `Perfecto. Abre el configurador visual de Lucátta:\n${site}/pedido\n\nAhí podrás elegir fecha, porciones, sabores, rellenos, colores y agregar una referencia opcional.`,
+        text: `¡Perfecto${firstName(customer?.display_name || message.profileName) ? `, ${firstName(customer?.display_name || message.profileName)}` : ''}! ✨\n\n¿Qué estás buscando?`,
+        actions: [
+          { id: 'quote_cake', title: '🎂 Pastel' },
+          { id: 'quote_desserts', title: '🧁 Postres' },
+          { id: 'quote_help', title: '🤔 Ayúdame' },
+        ],
+      });
+    } else if (action === 'quote_cake') {
+      await enqueueWhatsapp(whatsapp, {
+        text: [
+          '¡Perfecto! 🎂',
+          '',
+          'Vamos a armar tu pastel.',
+          '',
+          'Podrás elegir el tamaño, sabores, relleno, colores y los demás detalles para que preparemos una cotización personalizada. 💜',
+          '',
+          `🎂 *Armar mi pastel*\n${site}/pedido?categoria=PASTEL`,
+        ].join('\n'),
+      });
+    } else if (action === 'quote_desserts') {
+      await enqueueWhatsapp(whatsapp, {
+        text: [
+          '¡Claro! 🧁✨',
+          '',
+          'Vamos a preparar tu solicitud de postres.',
+          '',
+          'Podrás seleccionar lo que necesitas, la cantidad y la fecha.',
+          '',
+          `🧁 *Elegir mis postres*\n${site}/pedido?categoria=POSTRE`,
+        ].join('\n'),
+      });
+    } else if (action === 'quote_help') {
+      await setConversationState('HUMAN_HANDOFF');
+      await enqueueWhatsapp(whatsapp, {
+        text: [
+          'No pasa nada 😊',
+          '',
+          'También podemos ayudarte a encontrar algo que se adapte a lo que necesitas.',
+          '',
+          'Cuéntanos en *un solo mensaje* qué celebras, para cuántas personas y qué idea tienes. 💜',
+        ].join('\n'),
+      });
+      alerts.push({
+        subject: `Cliente necesita orientación · ${whatsapp}`,
+        text: `${message.profileName || 'Cliente'} necesita ayuda para elegir un producto. Revisa WhatsApp.`,
+      });
+    } else if (
+      action === 'menu_location' ||
+      /horario|ubicaci[oó]n|direcci[oó]n|d[oó]nde est[aá]n/.test(text)
+    ) {
+      const settingsRows = await supabaseFetch<BusinessSettings[]>(
+        '/rest/v1/business_settings?id=eq.1&select=*',
+      );
+      await enqueueWhatsapp(whatsapp, {
+        text: locationMessage(settingsRows[0]),
+        actions: [
+          { id: 'menu_quote', title: '🎂 Hacer pedido' },
+          { id: 'menu_home', title: '🏠 Menú' },
+        ],
       });
     } else if (
       action === 'menu_orders' ||
@@ -194,15 +438,34 @@ export async function POST(request: Request) {
         `/rest/v1/orders?whatsapp=eq.${whatsapp}&status=not.eq.CANCELADA&select=public_code,status,requested_date&order=created_at.desc&limit=5`,
       );
       const body = orders.length
-        ? `Tus pedidos recientes:\n${orders.map((order) => `• ${order.public_code} · ${order.requested_date} · ${order.status.replaceAll('_', ' ')}`).join('\n')}`
-        : 'No encontré pedidos activos ligados a este número.';
-      await enqueueWhatsapp(whatsapp, { text: body });
+        ? [
+            `¡Claro${firstName(customer?.display_name || message.profileName) ? `, ${firstName(customer?.display_name || message.profileName)}` : ''}! 📦`,
+            '',
+            'Encontré estos pedidos:',
+            '',
+            ...orders.flatMap((order) => [
+              `🔖 *${order.public_code}*`,
+              `📅 ${formatDateEs(order.requested_date)}`,
+              `📌 ${statusLabel(order.status)}`,
+              '',
+            ]),
+            'Si necesitas revisar un detalle, escribe *ASESOR*.',
+          ].join('\n')
+        : 'No encontré pedidos activos ligados a este número.\n\nSi crees que falta alguno, escribe *ASESOR* y te ayudamos. 💜';
+      await enqueueWhatsapp(whatsapp, {
+        text: body,
+        actions: [
+          { id: 'menu_human', title: '🙋 Necesito ayuda' },
+          { id: 'menu_home', title: '🏠 Menú' },
+        ],
+      });
     } else if (
       action === 'menu_human' ||
       /persona|asesor|ayuda humana/.test(text)
     ) {
+      await setConversationState('HUMAN_HANDOFF');
       await enqueueWhatsapp(whatsapp, {
-        text: 'Listo. Avisé al equipo de Lucátta para que continúe contigo. El plazo de atención nunca vencerá fuera del horario de 9:00 a 19:00.',
+        text: `¡Claro${firstName(customer?.display_name || message.profileName) ? `, ${firstName(customer?.display_name || message.profileName)}` : ''}! 💜\n\nDejaré la conversación con nuestro equipo para que puedan ayudarte personalmente.\n\nCuéntanos en *un solo mensaje* qué necesitas para atenderte más rápido. 😊`,
       });
       alerts.push({
         subject: `Cliente solicita atención · ${whatsapp}`,
@@ -218,25 +481,38 @@ export async function POST(request: Request) {
         ),
       ]);
       const settings = settingsRows[0];
-      if (settings && !settings.accepting_orders) {
-        await enqueueWhatsapp(whatsapp, { text: settings.paused_message });
-      } else {
-        const actions = [
-          { id: 'menu_quote', title: 'Cotizar pedido' },
-          ...(orders.length
-            ? [{ id: 'menu_orders', title: 'Ver mi pedido' }]
-            : []),
-          { id: 'menu_human', title: 'Hablar con persona' },
-        ];
-        await enqueueWhatsapp(
-          whatsapp,
-          {
-            text: `Hola${message.profileName ? `, ${message.profileName}` : ''}. Soy Luca, el asistente de Lucátta. ¿Cómo te ayudamos hoy?`,
-            actions,
-          },
-          'MENU',
-        );
-      }
+      const hasOrders = orders.length > 0;
+      const acceptingOrders = settings?.accepting_orders !== false;
+      const actions = acceptingOrders
+        ? [
+            { id: 'menu_quote', title: '🎂 Cotizar' },
+            ...(hasOrders
+              ? [{ id: 'menu_orders', title: '📦 Mis pedidos' }]
+              : [{ id: 'menu_location', title: '📍 Horario' }]),
+            ...(hasOrders
+              ? [{ id: 'menu_location', title: '📍 Horario' }]
+              : [{ id: 'menu_human', title: '🙋 Ayuda' }]),
+          ]
+        : [
+            ...(hasOrders
+              ? [{ id: 'menu_orders', title: '📦 Mis pedidos' }]
+              : []),
+            { id: 'menu_location', title: '📍 Horario' },
+            { id: 'menu_human', title: '🙋 Ayuda' },
+          ];
+      await enqueueWhatsapp(
+        whatsapp,
+        {
+          text: welcomeMessage(
+            customer?.display_name || message.profileName,
+            hasOrders,
+            acceptingOrders,
+            settings?.paused_message,
+          ),
+          actions,
+        },
+        'MENU',
+      );
     }
 
     return NextResponse.json({ ok: true, duplicate: false, alerts });

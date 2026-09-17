@@ -2072,6 +2072,23 @@ h1 {
   padding-bottom: 1.5rem;
 }
 
+.order-editing-banner {
+  display: grid;
+  gap: 0.45rem;
+  margin: 0 0 1.6rem;
+  padding: 1rem 1.1rem;
+  border: 1px solid rgba(111, 22, 36, 0.18);
+  border-left: 4px solid var(--wine);
+  border-radius: 0.9rem;
+  background: rgba(111, 22, 36, 0.055);
+  color: var(--wine);
+}
+
+.order-editing-banner span {
+  color: var(--ink-soft);
+  line-height: 1.55;
+}
+
 .order-progress p {
   color: var(--terracotta);
   font-size: 0.75rem;
