@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import type { BusinessSettings, OrderRecord } from '@/lib/lucatta-types';
 import {
   createOrderEditToken,
+  createWhatsappHandoffToken,
   enqueueWhatsapp,
   reservationExpiryIso,
   withinServiceHours,
@@ -376,6 +377,7 @@ export async function POST(request: Request) {
         ],
       });
     } else if (action === 'quote_cake') {
+      const handoff = createWhatsappHandoffToken(whatsapp);
       await enqueueWhatsapp(whatsapp, {
         text: [
           '¡Perfecto! 🎂',
@@ -384,10 +386,11 @@ export async function POST(request: Request) {
           '',
           'Podrás elegir el tamaño, sabores, relleno, colores y los demás detalles para que preparemos una cotización personalizada. 💜',
           '',
-          `🎂 *Armar mi pastel*\n${site}/pedido?categoria=PASTEL`,
+          `🎂 *Armar mi pastel*\n${site}/pedido?categoria=PASTEL&contact=${encodeURIComponent(handoff)}`,
         ].join('\n'),
       });
     } else if (action === 'quote_desserts') {
+      const handoff = createWhatsappHandoffToken(whatsapp);
       await enqueueWhatsapp(whatsapp, {
         text: [
           '¡Claro! 🧁✨',
@@ -396,7 +399,7 @@ export async function POST(request: Request) {
           '',
           'Podrás seleccionar lo que necesitas, la cantidad y la fecha.',
           '',
-          `🧁 *Elegir mis postres*\n${site}/pedido?categoria=POSTRE`,
+          `🧁 *Elegir mis postres*\n${site}/pedido?categoria=POSTRE&contact=${encodeURIComponent(handoff)}`,
         ].join('\n'),
       });
     } else if (action === 'quote_help') {

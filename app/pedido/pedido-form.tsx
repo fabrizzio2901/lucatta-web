@@ -110,6 +110,7 @@ export function PedidoForm() {
   const [editToken, setEditToken] = useState('');
   const [editingCode, setEditingCode] = useState('');
   const [existingReference, setExistingReference] = useState(false);
+  const [whatsappLinked, setWhatsappLinked] = useState(false);
 
   useEffect(() => {
     fetch('/api/catalogo')
@@ -142,6 +143,7 @@ export function PedidoForm() {
     try {
       const params = new URLSearchParams(window.location.search);
       if (params.get('edit')) return;
+      const hasWhatsappHandoff = Boolean(params.get('contact'));
       const stored = window.localStorage.getItem('lucatta-order-draft');
       if (!stored) return;
       const restored = JSON.parse(stored) as {
@@ -150,7 +152,9 @@ export function PedidoForm() {
       };
       if (restored.pedido?.aceptaAviso) {
         timeout = window.setTimeout(() => {
-          setPedido((current) => ({ ...current, ...restored.pedido }));
+          const restoredPedido = { ...restored.pedido };
+          if (hasWhatsappHandoff) delete restoredPedido.whatsapp;
+          setPedido((current) => ({ ...current, ...restoredPedido }));
           setDraftId(restored.id || '');
         });
       }
@@ -164,18 +168,37 @@ export function PedidoForm() {
     const params = new URLSearchParams(window.location.search);
     const edit = params.get('edit') || '';
     const token = params.get('token') || '';
+    const contact = params.get('contact') || '';
     const requestedCategory = params.get('categoria');
     if (!edit || !token) {
-      if (['PASTEL', 'POSTRE', 'EVENTO'].includes(requestedCategory || '')) {
-        const timeout = window.setTimeout(() => {
+      const timeout = window.setTimeout(() => {
+        if (['PASTEL', 'POSTRE', 'EVENTO'].includes(requestedCategory || '')) {
           setPedido((current) => ({
             ...current,
             categoria: requestedCategory as Pedido['categoria'],
           }));
-        });
-        return () => window.clearTimeout(timeout);
+        }
+      });
+      if (contact) {
+        fetch(`/api/pedido/handoff?token=${encodeURIComponent(contact)}`)
+          .then(async (response) => {
+            const data = (await response.json()) as {
+              ok?: boolean;
+              whatsapp?: string;
+            };
+            if (response.ok && data.ok && data.whatsapp) {
+              setPedido((current) => ({
+                ...current,
+                whatsapp: data.whatsapp || '',
+              }));
+              setWhatsappLinked(true);
+            }
+          })
+          .catch(() => {
+            // El cliente todavía puede escribir su número manualmente.
+          });
       }
-      return;
+      return () => window.clearTimeout(timeout);
     }
 
     fetch(
@@ -874,13 +897,22 @@ export function PedidoForm() {
               />
             </label>
             <label>
-              WhatsApp a 10 dígitos
+              {whatsappLinked
+                ? 'WhatsApp vinculado a esta conversación'
+                : 'WhatsApp a 10 dígitos'}
               <input
                 inputMode="numeric"
                 value={pedido.whatsapp}
                 onChange={(event) => setField('whatsapp', event.target.value)}
                 placeholder="222 123 4567"
+                readOnly={whatsappLinked}
               />
+              {whatsappLinked && (
+                <small>
+                  Usaremos el mismo número desde el que abriste este pedido para
+                  enviarte el resumen y dar seguimiento.
+                </small>
+              )}
             </label>
           </div>
           <label>

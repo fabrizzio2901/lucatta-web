@@ -1,5 +1,12 @@
 import { supabaseFetch } from '@/lib/supabase-rest';
-import { createHmac, timingSafeEqual } from 'node:crypto';
+import {
+  createCipheriv,
+  createDecipheriv,
+  createHash,
+  createHmac,
+  randomBytes,
+  timingSafeEqual,
+} from 'node:crypto';
 
 export async function enqueueWhatsapp(
   recipient: string,
@@ -62,6 +69,61 @@ function editSecret() {
   const secret = process.env.LUCATTA_AUTOMATION_KEY;
   if (!secret) throw new Error('LUCATTA_AUTOMATION_KEY no está configurada.');
   return secret;
+}
+
+function handoffKey() {
+  return createHash('sha256')
+    .update(`${editSecret()}:whatsapp-web-handoff`)
+    .digest();
+}
+
+export function createWhatsappHandoffToken(
+  whatsapp: string,
+  date = new Date(),
+) {
+  const digits = String(whatsapp || '').replace(/\D/g, '');
+  if (digits.length !== 10) throw new Error('WhatsApp inválido para enlace.');
+
+  const iv = randomBytes(12);
+  const cipher = createCipheriv('aes-256-gcm', handoffKey(), iv);
+  const payload = Buffer.from(
+    JSON.stringify({
+      whatsapp: digits,
+      expiresAt: date.getTime() + 24 * 60 * 60 * 1000,
+    }),
+  );
+  const encrypted = Buffer.concat([cipher.update(payload), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return Buffer.concat([iv, tag, encrypted]).toString('base64url');
+}
+
+export function readWhatsappHandoffToken(token: string, date = new Date()) {
+  try {
+    const packed = Buffer.from(String(token || ''), 'base64url');
+    if (packed.length < 29) return null;
+
+    const iv = packed.subarray(0, 12);
+    const tag = packed.subarray(12, 28);
+    const encrypted = packed.subarray(28);
+    const decipher = createDecipheriv('aes-256-gcm', handoffKey(), iv);
+    decipher.setAuthTag(tag);
+    const value = JSON.parse(
+      Buffer.concat([decipher.update(encrypted), decipher.final()]).toString(
+        'utf8',
+      ),
+    ) as { whatsapp?: string; expiresAt?: number };
+    const whatsapp = String(value.whatsapp || '').replace(/\D/g, '');
+    if (
+      whatsapp.length !== 10 ||
+      !value.expiresAt ||
+      value.expiresAt < date.getTime()
+    ) {
+      return null;
+    }
+    return whatsapp;
+  } catch {
+    return null;
+  }
 }
 
 export function createOrderEditToken(orderId: string, whatsapp: string) {
