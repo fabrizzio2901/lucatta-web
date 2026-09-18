@@ -195,7 +195,9 @@ export async function PATCH(request: Request, context: Context) {
             `🕐 *Hora:* ${formatTime(order.requested_time)}`,
             '',
             `💰 *Total:* ${amount} MXN`,
-            `💳 *Anticipo sugerido para reservar:* ${deposit} MXN`,
+            `💳 *Anticipo obligatorio para reservar (50%):* ${deposit} MXN`,
+            '',
+            'Para asegurar tu pedido debes cubrir ese importe completo. Un pago menor al 50% no confirma el pedido ni reserva la fecha.',
             ...(order.quote_notes
               ? ['', `📝 *Notas del equipo:* ${order.quote_notes}`]
               : []),

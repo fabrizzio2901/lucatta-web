@@ -69,7 +69,7 @@ export async function POST(request: Request) {
           text: [
             `¡Hola${firstName(order.customer_name) ? `, ${firstName(order.customer_name)}` : ''}! 😊💜`,
             '',
-            `Solo paso a recordarte que está pendiente el anticipo de *${formatMoney(Number(order.quote_total || 0) / 2)}* para reservar tu pedido.`,
+            `Solo paso a recordarte que está pendiente el anticipo obligatorio del 50%: *${formatMoney(Number(order.quote_total || 0) / 2)}*. Debe cubrirse completo para reservar tu pedido.`,
             '',
             `📅 *Fecha solicitada:* ${formatDateEs(order.requested_date)}`,
             `🔖 *Folio:* ${order.public_code}`,
