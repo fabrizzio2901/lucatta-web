@@ -51,15 +51,12 @@ export async function POST(request: Request) {
     const body = (await request.json().catch(() => ({}))) as { limit?: number };
     const limit = Math.min(20, Math.max(1, Number(body.limit) || 10));
     const rows = await supabaseFetch<OutboxRow[]>(
-      `/rest/v1/outbox?status=eq.PENDING&available_at=lte.${encodeURIComponent(new Date().toISOString())}&select=*&order=created_at.asc&limit=${limit}`,
+      '/rest/v1/rpc/claim_lucatta_outbox',
+      {
+        method: 'POST',
+        body: JSON.stringify({ batch_limit: limit }),
+      },
     );
-    if (rows.length) {
-      const ids = rows.map((row) => row.id).join(',');
-      await supabaseFetch(`/rest/v1/outbox?id=in.(${ids})`, {
-        method: 'PATCH',
-        body: JSON.stringify({ status: 'PROCESSING' }),
-      });
-    }
     return NextResponse.json({
       ok: true,
       messages: rows.map((row) => ({

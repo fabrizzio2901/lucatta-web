@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { enqueueWhatsapp } from '@/lib/lucatta-automation';
+import { normalizeMimeType, receiptExtension } from '@/lib/lucatta-media';
 import type { OrderRecord, PaymentReceipt } from '@/lib/lucatta-types';
 import { supabaseFetch, uploadObject } from '@/lib/supabase-rest';
 
@@ -12,13 +13,6 @@ type ReceiptPayload = {
   mimeType?: string;
   dataBase64?: string;
   fileName?: string;
-};
-
-const mimeExtensions: Record<string, string> = {
-  'image/jpeg': 'jpg',
-  'image/png': 'png',
-  'image/webp': 'webp',
-  'application/pdf': 'pdf',
 };
 
 function authorized(request: Request) {
@@ -77,10 +71,8 @@ export async function POST(request: Request) {
 
     const messageId = String(value.messageId || '').trim();
     const whatsapp = normalizeWhatsapp(value.from);
-    const mimeType = String(value.mimeType || '')
-      .split(';')[0]
-      .toLowerCase();
-    const extension = mimeExtensions[mimeType];
+    const mimeType = normalizeMimeType(value.mimeType);
+    const extension = receiptExtension(mimeType);
 
     if (!messageId || whatsapp.length !== 10 || !extension || !bytes.length) {
       return NextResponse.json(

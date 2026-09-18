@@ -15,6 +15,7 @@ import {
   statusLabel,
   welcomeMessage,
 } from '@/lib/lucatta-copy';
+import { isReceiptMimeType } from '@/lib/lucatta-media';
 import { supabaseFetch } from '@/lib/supabase-rest';
 
 export const runtime = 'nodejs';
@@ -131,45 +132,32 @@ export async function POST(request: Request) {
       conversationState = state;
     };
 
-    if (message.mediaId) {
-      const orders = await supabaseFetch<
-        Pick<OrderRecord, 'id' | 'public_code'>[]
-      >(
-        `/rest/v1/orders?whatsapp=eq.${whatsapp}&status=in.(RESERVA_PENDIENTE,ANTICIPO_EN_REVISION)&select=id,public_code&order=created_at.desc&limit=1`,
-      );
-      const order = orders[0];
-      if (order) {
-        await supabaseFetch(`/rest/v1/orders?id=eq.${order.id}`, {
-          method: 'PATCH',
-          body: JSON.stringify({
-            status: 'ANTICIPO_EN_REVISION',
-            payment_status: 'EN_REVISION',
-            deposit_rejection_reason: null,
-          }),
-        });
-        await enqueueWhatsapp(
-          whatsapp,
-          {
-            text: [
-              '¡Recibido! 🧾✨',
-              '',
-              `Tu comprobante del pedido *${order.public_code}* ya está en revisión.`,
-              '',
-              'Conservaremos el espacio mientras el equipo de Lucátta termina de validarlo.',
-              '',
-              'Te avisaremos por este mismo chat. 💜',
-            ].join('\n'),
-          },
-          'TEXT',
-          `receipt-ack:${messageId}`,
-        );
-        return NextResponse.json({
-          ok: true,
-          duplicate: false,
-          receipt: { orderId: order.id, publicCode: order.public_code },
-          alerts,
-        });
-      }
+    if (message.mediaId && isReceiptMimeType(message.mediaMimeType)) {
+      // The receipt endpoint owns the complete transaction: first it stores the
+      // file and creates payment_receipts, then it changes the order state and
+      // acknowledges the customer. Doing it here caused a race between the two
+      // parallel n8n branches and could leave orders without a reviewable file.
+      return NextResponse.json({
+        ok: true,
+        duplicate: false,
+        receiptCandidate: true,
+        alerts,
+      });
+    }
+
+    if (['audio', 'video'].includes(String(message.type || '').toLowerCase())) {
+      await enqueueWhatsapp(whatsapp, {
+        text: [
+          'Gracias por tu mensaje 😊',
+          '',
+          'Por ahora no puedo revisar audios o videos automáticamente.',
+          '',
+          'Si quieres enviar un comprobante, compártelo como foto, captura o PDF. 🧾',
+          '',
+          'Para recibir ayuda personal, escribe *ASESOR*. 💜',
+        ].join('\n'),
+      });
+      return NextResponse.json({ ok: true, duplicate: false, alerts });
     }
 
     if (
