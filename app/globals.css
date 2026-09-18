@@ -2053,8 +2053,8 @@ h1 {
 .order-builder-shell {
   align-items: start;
   display: grid;
-  gap: 2.5rem;
-  grid-template-columns: minmax(0, 1fr) minmax(250px, 0.32fr);
+  gap: 1.5rem;
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .order-form,
@@ -2306,14 +2306,22 @@ h1 {
 }
 
 .order-builder-help {
-  border-top: 1px solid var(--line);
-  padding-top: 1.5rem;
-  position: sticky;
-  top: 120px;
+  align-items: center;
+  background: rgba(255, 250, 242, 0.72);
+  border: 1px solid var(--line);
+  border-radius: 1.35rem;
+  display: grid;
+  gap: 0.25rem 1.25rem;
+  grid-template-areas:
+    'icon title link'
+    'icon text link';
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  padding: 1.35rem 1.5rem;
 }
 
 .order-builder-help svg {
   color: var(--terracotta);
+  grid-area: icon;
   height: 28px;
   width: 28px;
 }
@@ -2321,15 +2329,27 @@ h1 {
 .order-builder-help h2 {
   color: var(--wine);
   font-family: var(--font-display);
-  font-size: 2rem;
+  font-size: clamp(1.45rem, 2.4vw, 1.9rem);
+  grid-area: title;
   line-height: 1.05;
-  margin: 1rem 0;
+  margin: 0;
 }
 
 .order-builder-help p,
 .order-success > p {
   color: var(--muted);
   line-height: 1.6;
+}
+
+.order-builder-help p {
+  grid-area: text;
+  margin: 0;
+}
+
+.order-builder-help .inline-link {
+  grid-area: link;
+  margin: 0;
+  white-space: nowrap;
 }
 
 .order-success {
@@ -2587,10 +2607,6 @@ h1 {
     padding: 1.5rem 0 0;
   }
 
-  .order-builder-help {
-    position: static;
-  }
-
   .order-visual-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -2629,6 +2645,19 @@ h1 {
 
   .order-form-actions .button {
     width: 100%;
+  }
+
+  .order-builder-help {
+    align-items: start;
+    grid-template-areas:
+      'icon title'
+      'text text'
+      'link link';
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .order-builder-help .inline-link {
+    margin-top: 0.55rem;
   }
 }
 
